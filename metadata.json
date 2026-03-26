@@ -1,0 +1,5 @@
+{
+  "name": "Burger do Gordo - Cardápio Online",
+  "description": "Sistema de cardápio digital interativo com carrinho e pedidos via WhatsApp.",
+  "requestFramePermissions": []
+}
