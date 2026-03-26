@@ -35,7 +35,13 @@ export default function AdminPage() {
     e.preventDefault();
     if (!editingProduct) return;
     
-    setLocalProducts(prev => prev.map(p => p.id === editingProduct.id ? editingProduct : p));
+    setLocalProducts(prev => {
+      const exists = prev.some(p => p.id === editingProduct.id);
+      if (exists) {
+        return prev.map(p => p.id === editingProduct.id ? editingProduct : p);
+      }
+      return [...prev, editingProduct];
+    });
     setEditingProduct(null);
   };
 
@@ -294,6 +300,188 @@ export default function AdminPage() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">Peça também (Sugestões)</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 bg-neutral-50 rounded-xl border border-neutral-100">
+                    {localProducts.filter(p => p.id !== editingProduct.id).map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          const current = editingProduct.suggestedProducts || [];
+                          const updated = current.includes(p.id) 
+                            ? current.filter(id => id !== p.id)
+                            : [...current, p.id];
+                          setEditingProduct({...editingProduct, suggestedProducts: updated});
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg text-xs transition-all border",
+                          (editingProduct.suggestedProducts || []).includes(p.id)
+                            ? "bg-black text-white border-black"
+                            : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
+                        )}
+                      >
+                        <div className="w-6 h-6 rounded overflow-hidden flex-shrink-0">
+                          <img src={p.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                        <span className="truncate flex-1 text-left">{p.name}</span>
+                        {(editingProduct.suggestedProducts || []).includes(p.id) && <Check size={12} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-neutral-900">Grupos de Opções</h3>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const newGroup = {
+                          id: Math.random().toString(36).substr(2, 9),
+                          name: 'Novo Grupo',
+                          required: false,
+                          options: []
+                        };
+                        setEditingProduct({
+                          ...editingProduct,
+                          optionGroups: [...(editingProduct.optionGroups || []), newGroup]
+                        });
+                      }}
+                      className="text-xs bg-neutral-100 hover:bg-neutral-200 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 transition-colors"
+                    >
+                      <Plus size={14} />
+                      Adicionar Grupo
+                    </button>
+                  </div>
+
+                  <div className="space-y-6">
+                    {editingProduct.optionGroups?.map((group, gIdx) => (
+                      <div key={group.id} className="bg-neutral-50 p-4 rounded-2xl border border-neutral-100 space-y-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 space-y-3">
+                            <input 
+                              type="text"
+                              placeholder="Nome do grupo (ex: Escolha o pão)"
+                              className="w-full bg-white border-none rounded-lg py-2 px-3 text-sm font-bold focus:ring-2 focus:ring-neutral-900"
+                              value={group.name}
+                              onChange={(e) => {
+                                const updated = [...(editingProduct.optionGroups || [])];
+                                updated[gIdx] = { ...group, name: e.target.value };
+                                setEditingProduct({ ...editingProduct, optionGroups: updated });
+                              }}
+                            />
+                            <div className="flex items-center gap-4">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                  type="checkbox"
+                                  className="rounded border-neutral-300 text-black focus:ring-black"
+                                  checked={group.required}
+                                  onChange={(e) => {
+                                    const updated = [...(editingProduct.optionGroups || [])];
+                                    updated[gIdx] = { ...group, required: e.target.checked };
+                                    setEditingProduct({ ...editingProduct, optionGroups: updated });
+                                  }}
+                                />
+                                <span className="text-xs font-medium text-neutral-600">Obrigatório</span>
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-neutral-500">Máx:</span>
+                                <input 
+                                  type="number"
+                                  className="w-12 bg-white border-none rounded-lg py-1 px-2 text-xs text-center focus:ring-2 focus:ring-neutral-900"
+                                  value={group.max || ''}
+                                  onChange={(e) => {
+                                    const updated = [...(editingProduct.optionGroups || [])];
+                                    updated[gIdx] = { ...group, max: e.target.value ? Number(e.target.value) : undefined };
+                                    setEditingProduct({ ...editingProduct, optionGroups: updated });
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const updated = editingProduct.optionGroups?.filter((_, i) => i !== gIdx);
+                              setEditingProduct({ ...editingProduct, optionGroups: updated });
+                            }}
+                            className="p-2 text-neutral-400 hover:text-red-600 transition-colors"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Opções</span>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const newOpt = { id: Math.random().toString(36).substr(2, 9), name: 'Nova Opção' };
+                                const updatedGroups = [...(editingProduct.optionGroups || [])];
+                                updatedGroups[gIdx] = { ...group, options: [...group.options, newOpt] };
+                                setEditingProduct({ ...editingProduct, optionGroups: updatedGroups });
+                              }}
+                              className="text-[10px] font-bold text-neutral-900 hover:underline"
+                            >
+                              + Adicionar Opção
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {group.options.map((opt, oIdx) => (
+                              <div key={opt.id} className="flex items-center gap-2">
+                                <input 
+                                  type="text"
+                                  placeholder="Nome da opção"
+                                  className="flex-1 bg-white border-none rounded-lg py-2 px-3 text-xs focus:ring-2 focus:ring-neutral-900"
+                                  value={opt.name}
+                                  onChange={(e) => {
+                                    const updatedGroups = [...(editingProduct.optionGroups || [])];
+                                    const updatedOpts = [...group.options];
+                                    updatedOpts[oIdx] = { ...opt, name: e.target.value };
+                                    updatedGroups[gIdx] = { ...group, options: updatedOpts };
+                                    setEditingProduct({ ...editingProduct, optionGroups: updatedGroups });
+                                  }}
+                                />
+                                <div className="relative w-24">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400">R$</span>
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0,00"
+                                    className="w-full bg-white border-none rounded-lg py-2 pl-6 pr-2 text-xs focus:ring-2 focus:ring-neutral-900"
+                                    value={opt.price || ''}
+                                    onChange={(e) => {
+                                      const updatedGroups = [...(editingProduct.optionGroups || [])];
+                                      const updatedOpts = [...group.options];
+                                      updatedOpts[oIdx] = { ...opt, price: e.target.value ? Number(e.target.value) : undefined };
+                                      updatedGroups[gIdx] = { ...group, options: updatedOpts };
+                                      setEditingProduct({ ...editingProduct, optionGroups: updatedGroups });
+                                    }}
+                                  />
+                                </div>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedGroups = [...(editingProduct.optionGroups || [])];
+                                    const updatedOpts = group.options.filter((_, i) => i !== oIdx);
+                                    updatedGroups[gIdx] = { ...group, options: updatedOpts };
+                                    setEditingProduct({ ...editingProduct, optionGroups: updatedGroups });
+                                  }}
+                                  className="p-2 text-neutral-300 hover:text-red-600 transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-neutral-700 mb-1">Descrição</label>
                   <textarea 
                     rows={4}
@@ -362,7 +550,18 @@ export default function AdminPage() {
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
             <div className="p-6 border-b flex justify-between items-center">
               <h3 className="font-bold text-lg">Lista de Produtos</h3>
-              <button className="bg-black text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-neutral-800 transition-all">
+              <button 
+                onClick={() => setEditingProduct({
+                  id: Math.random().toString(36).substr(2, 9),
+                  name: '',
+                  description: '',
+                  price: 0,
+                  image: 'https://picsum.photos/seed/new-product/400/300',
+                  categoryId: categories[0].id,
+                  available: true
+                })}
+                className="bg-black text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-neutral-800 transition-all"
+              >
                 <Plus size={18} />
                 Novo Produto
               </button>
@@ -686,6 +885,55 @@ export default function AdminPage() {
                       localStoreConfig.isOpen ? "left-7" : "left-1"
                     )} />
                   </button>
+                </div>
+                <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <ShoppingBag className="w-4 h-4 text-neutral-400" />
+                    <span className="font-bold">Aceitar pedidos fechado</span>
+                  </div>
+                  <button 
+                    onClick={() => setLocalStoreConfig({...localStoreConfig, allowOrdersWhenClosed: !localStoreConfig.allowOrdersWhenClosed})}
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative",
+                      localStoreConfig.allowOrdersWhenClosed ? "bg-black" : "bg-neutral-300"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                      localStoreConfig.allowOrdersWhenClosed ? "left-7" : "left-1"
+                    )} />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">Peça mais (Sugestões no Carrinho)</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 bg-neutral-50 rounded-xl border border-neutral-100">
+                    {localProducts.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          const current = localStoreConfig.cartSuggestions || [];
+                          const updated = current.includes(p.id) 
+                            ? current.filter(id => id !== p.id)
+                            : [...current, p.id];
+                          setLocalStoreConfig({...localStoreConfig, cartSuggestions: updated});
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 p-2 rounded-lg text-xs transition-all border",
+                          (localStoreConfig.cartSuggestions || []).includes(p.id)
+                            ? "bg-black text-white border-black"
+                            : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
+                        )}
+                      >
+                        <div className="w-6 h-6 rounded overflow-hidden flex-shrink-0">
+                          <img src={p.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        </div>
+                        <span className="truncate flex-1 text-left">{p.name}</span>
+                        {(localStoreConfig.cartSuggestions || []).includes(p.id) && <Check size={12} />}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

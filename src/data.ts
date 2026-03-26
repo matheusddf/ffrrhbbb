@@ -11,6 +11,7 @@ export const storeConfig: StoreConfig = {
   minOrder: 20.00,
   openHours: "Fechado • Abrimos às 18h00",
   isOpen: false,
+  allowOrdersWhenClosed: true,
   freeDeliveryOver: 100.00,
   neighborhoods: [
     { id: '1', name: 'Bairro Primavera', fee: 5.60 },
@@ -45,7 +46,33 @@ export const products: Product[] = [
     price: 28.00,
     image: 'https://picsum.photos/seed/burger-gordelicia/400/300',
     available: true,
-    badge: 'MAIS PEDIDO'
+    badge: 'MAIS PEDIDO',
+    optionGroups: [
+      {
+        id: 'g1',
+        name: 'Escolha o ponto da carne',
+        required: true,
+        min: 1,
+        max: 1,
+        options: [
+          { id: 'o1', name: 'Mal passado' },
+          { id: 'o2', name: 'Ao ponto' },
+          { id: 'o3', name: 'Bem passado' }
+        ]
+      },
+      {
+        id: 'g2',
+        name: 'Adicionais',
+        required: false,
+        min: 0,
+        max: 5,
+        options: [
+          { id: 'o4', name: 'Bacon extra', price: 4.50 },
+          { id: 'o5', name: 'Queijo extra', price: 3.00 },
+          { id: 'o6', name: 'Ovo frito', price: 2.50 }
+        ]
+      }
+    ]
   },
   {
     id: '2',

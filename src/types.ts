@@ -1,3 +1,18 @@
+export interface ProductOption {
+  id: string;
+  name: string;
+  price?: number;
+}
+
+export interface ProductOptionGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  min?: number;
+  max?: number;
+  options: ProductOption[];
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -8,6 +23,8 @@ export interface Product {
   categoryId: string;
   available: boolean;
   badge?: 'MAIS PEDIDO' | 'NOVIDADE' | 'RECOMENDADO';
+  suggestedProducts?: string[];
+  optionGroups?: ProductOptionGroup[];
 }
 
 export interface Category {
@@ -47,6 +64,8 @@ export interface StoreConfig {
   minOrder: number;
   openHours: string;
   isOpen: boolean;
+  allowOrdersWhenClosed: boolean;
+  cartSuggestions?: string[];
   freeDeliveryOver?: number;
   neighborhoods: Neighborhood[];
   loyalty: LoyaltyConfig;
@@ -68,4 +87,9 @@ export interface Customer {
 export interface CartItem extends Product {
   quantity: number;
   observation?: string;
+  selectedOptions?: {
+    groupId: string;
+    groupName: string;
+    options: ProductOption[];
+  }[];
 }

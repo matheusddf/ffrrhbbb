@@ -31,11 +31,14 @@ export default function ClientPage() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedOptions, setSelectedOptions] = useState<CartItem['selectedOptions']>([]);
   const [observation, setObservation] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loginPhone, setLoginPhone] = useState('');
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<Neighborhood | null>(null);
+  const [neighborhoodSearch, setNeighborhoodSearch] = useState('');
+  const [deliveryType, setDeliveryType] = useState<'entrega' | 'retirada' | 'consumo'>('entrega');
   const [activeTab, setActiveTab] = useState('inicio');
 
   const [checkoutForm, setCheckoutForm] = useState({
@@ -46,26 +49,35 @@ export default function ClientPage() {
   });
 
   const cartTotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    return cart.reduce((acc, item) => {
+      const optionsPrice = item.selectedOptions?.reduce((sum, group) => 
+        sum + group.options.reduce((optSum, opt) => optSum + (opt.price || 0), 0), 0) || 0;
+      return acc + (item.price + optionsPrice) * item.quantity;
+    }, 0);
   }, [cart]);
 
   const deliveryFee = useMemo(() => {
+    if (deliveryType !== 'entrega') return 0;
     if (storeConfig.freeDeliveryOver && cartTotal >= storeConfig.freeDeliveryOver) {
       return 0;
     }
     return selectedNeighborhood ? selectedNeighborhood.fee : storeConfig.deliveryFee;
-  }, [cartTotal, selectedNeighborhood]);
+  }, [cartTotal, selectedNeighborhood, deliveryType]);
 
-  const addToCart = (product: Product, obs?: string) => {
+  const addToCart = (product: Product, obs?: string, options?: CartItem['selectedOptions']) => {
     setCart(prev => {
-      const existing = prev.find(item => item.id === product.id && item.observation === obs);
+      const existing = prev.find(item => 
+        item.id === product.id && 
+        item.observation === obs && 
+        JSON.stringify(item.selectedOptions) === JSON.stringify(options)
+      );
       if (existing) {
         return prev.map(item => 
-          (item.id === product.id && item.observation === obs) 
+          (item.id === product.id && item.observation === obs && JSON.stringify(item.selectedOptions) === JSON.stringify(options)) 
             ? { ...item, quantity: item.quantity + 1 } : item
         );
       }
-      return [...prev, { ...product, quantity: 1, observation: obs }];
+      return [...prev, { ...product, quantity: 1, observation: obs, selectedOptions: options }];
     });
   };
 
@@ -81,16 +93,20 @@ export default function ClientPage() {
     setIsLoginOpen(false);
   };
 
-  const removeFromCart = (productId: string, obs?: string) => {
+  const removeFromCart = (productId: string, obs?: string, options?: CartItem['selectedOptions']) => {
     setCart(prev => {
-      const existing = prev.find(item => item.id === productId && item.observation === obs);
+      const existing = prev.find(item => 
+        item.id === productId && 
+        item.observation === obs && 
+        JSON.stringify(item.selectedOptions) === JSON.stringify(options)
+      );
       if (existing && existing.quantity > 1) {
         return prev.map(item => 
-          (item.id === productId && item.observation === obs) 
+          (item.id === productId && item.observation === obs && JSON.stringify(item.selectedOptions) === JSON.stringify(options)) 
             ? { ...item, quantity: item.quantity - 1 } : item
         );
       }
-      return prev.filter(item => !(item.id === productId && item.observation === obs));
+      return prev.filter(item => !(item.id === productId && item.observation === obs && JSON.stringify(item.selectedOptions) === JSON.stringify(options)));
     });
   };
 
@@ -102,16 +118,31 @@ export default function ClientPage() {
   }, [searchTerm]);
 
   const sendOrderToWhatsApp = () => {
-    const itemsText = cart.map(item => 
-      `*${item.quantity}x ${item.name}* ${item.observation ? `\n   _Obs: ${item.observation}_` : ''} - R$ ${(item.price * item.quantity).toFixed(2)}`
-    ).join('\n');
+    const itemsText = cart.map(item => {
+      const optionsPrice = item.selectedOptions?.reduce((sum, group) => 
+        sum + group.options.reduce((optSum, opt) => optSum + (opt.price || 0), 0), 0) || 0;
+      const itemTotal = (item.price + optionsPrice) * item.quantity;
+      
+      let optionsText = '';
+      if (item.selectedOptions && item.selectedOptions.length > 0) {
+        optionsText = item.selectedOptions.map(group => 
+          `   - ${group.groupName}: ${group.options.map(o => o.name).join(', ')}`
+        ).join('\n');
+      }
+
+      return `*${item.quantity}x ${item.name}*${optionsText ? `\n${optionsText}` : ''}${item.observation ? `\n   _Obs: ${item.observation}_` : ''} - R$ ${itemTotal.toFixed(2)}`;
+    }).join('\n\n');
 
     const message = `
 *NOVO PEDIDO - ${storeConfig.name}*
 ------------------------------
 *Cliente:* ${checkoutForm.name}
 *Telefone:* ${checkoutForm.phone}
-*Endereço:* ${checkoutForm.address}
+${deliveryType === 'entrega' 
+  ? `*Bairro:* ${neighborhoodSearch || 'Não informado'}${!selectedNeighborhood && neighborhoodSearch ? ' (Bairro não cadastrado - Localização será enviada)' : ''}
+*Endereço:* ${checkoutForm.address}`
+  : `*Tipo:* ${deliveryType === 'retirada' ? 'Retirada no local' : 'Consumo no local'}`
+}
 *Pagamento:* ${checkoutForm.paymentMethod}
 ------------------------------
 *Itens:*
@@ -128,14 +159,6 @@ ${itemsText}
 
   return (
     <div className="min-h-screen bg-neutral-50 font-sans text-neutral-900 pb-24">
-      {/* Store Closed Indicator */}
-      {!storeConfig.isOpen && (
-        <div className="fixed bottom-24 right-4 bg-neutral-900/90 backdrop-blur-sm text-white px-4 py-2 rounded-xl shadow-lg z-[100] flex items-center gap-2 font-bold text-[10px] uppercase tracking-wider">
-          <Clock className="w-3 h-3" />
-          <span>Loja Fechada</span>
-        </div>
-      )}
-
       <header className="relative">
         <div className="h-48 w-full overflow-hidden">
           <img 
@@ -144,12 +167,11 @@ ${itemsText}
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
-          <div className="absolute inset-0 bg-black/30" />
         </div>
         
-        <div className="max-w-4xl mx-auto px-4 -mt-12 relative z-10">
-          <div className="bg-white rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center md:items-start gap-6">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden border-4 border-white shadow-lg -mt-16 md:mt-0">
+        <div className="max-w-4xl mx-auto px-4 relative z-10">
+          <div className="bg-white rounded-3xl p-6 shadow-sm -mt-20 flex flex-col items-center text-center">
+            <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white shadow-lg -mt-14 bg-white">
               <img 
                 src={storeConfig.logo} 
                 alt="Logo" 
@@ -158,27 +180,25 @@ ${itemsText}
               />
             </div>
             
-            <div className="flex-1 text-center md:text-left">
-              <h1 className="text-2xl font-bold tracking-tight">{storeConfig.name}</h1>
-              <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-2 text-sm text-neutral-500">
-                <div className="flex items-center gap-1">
-                  <MapPin className="w-4 h-4 text-neutral-900" />
-                  <span>{storeConfig.location}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Clock className="w-4 h-4 text-neutral-900" />
-                  <span>{storeConfig.openHours}</span>
-                </div>
+            <div className="mt-4 space-y-1">
+              <h1 className="text-2xl font-extrabold tracking-tight">{storeConfig.name}</h1>
+              <div className="flex items-center justify-center gap-2 text-sm text-neutral-500 font-medium">
+                <MapPin className="w-4 h-4" />
+                <span>{storeConfig.location}</span>
+                <span className="text-neutral-300">•</span>
+                <button className="text-neutral-900 font-bold hover:underline">Mais informações</button>
               </div>
               
-              <div className="mt-4 flex items-center justify-center md:justify-start gap-2">
-                <div className={cn(
-                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                  storeConfig.isOpen ? "bg-black text-white" : "bg-neutral-200 text-neutral-500"
-                )}>
-                  {storeConfig.isOpen ? 'Aberto' : 'Fechado'}
-                </div>
-                <span className="text-xs text-neutral-400">Pedido mínimo: R$ {storeConfig.minOrder.toFixed(2)}</span>
+              <div className="pt-2">
+                {!storeConfig.isOpen ? (
+                  <p className="text-red-600 font-bold text-sm">
+                    Fechado • Abrimos às {storeConfig.openHours.split(' às ')[1] || '18h00'}
+                  </p>
+                ) : (
+                  <p className="text-green-600 font-bold text-sm">
+                    Aberto • Fecha às {storeConfig.openHours.split(' às ')[1] || '23h00'}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -202,15 +222,20 @@ ${itemsText}
               <p className="text-xs text-neutral-500 mt-1">
                 {customer 
                   ? `Você tem ${customer.points} pontos acumulados.` 
-                  : `A cada R$ ${storeConfig.loyalty.pointsPerReal.toFixed(2)} em compras você ganha 1 ponto.`}
+                  : `A cada R$ ${storeConfig.loyalty.pointsPerReal.toFixed(2)} em compras você ganha 1 ponto que pode ser trocado por prêmios.`}
               </p>
               {!customer && (
-                <button 
-                  onClick={() => setIsLoginOpen(true)}
-                  className="text-neutral-900 text-xs font-bold mt-2 hover:underline"
-                >
-                  Entrar ou cadastrar-se →
-                </button>
+                <div className="mt-2">
+                  <p className="text-[10px] text-neutral-400 mb-1 italic">
+                    Novos clientes ganham automaticamente {storeConfig.loyalty.welcomeBonus} pontos.
+                  </p>
+                  <button 
+                    onClick={() => setIsLoginOpen(true)}
+                    className="text-neutral-900 text-xs font-bold hover:underline"
+                  >
+                    Entrar ou cadastrar-se →
+                  </button>
+                </div>
               )}
             </div>
           </motion.div>
@@ -400,6 +425,73 @@ ${itemsText}
                   <p className="text-2xl font-bold text-neutral-900 mt-4">R$ {selectedProduct.price.toFixed(2)}</p>
                 </div>
 
+                {selectedProduct.optionGroups?.map(group => (
+                  <div key={group.id} className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-neutral-900">{group.name}</h3>
+                        <p className="text-xs text-neutral-500">
+                          {group.required ? 'Obrigatório' : 'Opcional'} • {group.max === 1 ? 'Selecione 1' : `Selecione até ${group.max}`}
+                        </p>
+                      </div>
+                      {group.required && (
+                        <span className="bg-neutral-900 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase">Obrigatório</span>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {group.options.map(option => {
+                        const isSelected = selectedOptions.find(g => g.groupId === group.id)?.options.some(o => o.id === option.id);
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => {
+                              setSelectedOptions(prev => {
+                                const groupIdx = prev.findIndex(g => g.groupId === group.id);
+                                if (groupIdx === -1) {
+                                  return [...prev, { groupId: group.id, groupName: group.name, options: [option] }];
+                                }
+                                const currentGroup = prev[groupIdx];
+                                const isOptSelected = currentGroup.options.some(o => o.id === option.id);
+                                
+                                if (isOptSelected) {
+                                  const newOpts = currentGroup.options.filter(o => o.id !== option.id);
+                                  if (newOpts.length === 0) {
+                                    return prev.filter(g => g.groupId !== group.id);
+                                  }
+                                  return prev.map(g => g.groupId === group.id ? { ...g, options: newOpts } : g);
+                                } else {
+                                  if (group.max === 1) {
+                                    return prev.map(g => g.groupId === group.id ? { ...g, options: [option] } : g);
+                                  }
+                                  if (group.max && currentGroup.options.length >= group.max) return prev;
+                                  return prev.map(g => g.groupId === group.id ? { ...g, options: [...g.options, option] } : g);
+                                }
+                              });
+                            }}
+                            className={cn(
+                              "w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all text-left",
+                              isSelected ? "border-neutral-900 bg-neutral-50" : "border-neutral-100 bg-white hover:border-neutral-200"
+                            )}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+                                isSelected ? "border-neutral-900 bg-neutral-900" : "border-neutral-300"
+                              )}>
+                                {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                              </div>
+                              <span className={cn("font-medium", isSelected ? "text-neutral-900" : "text-neutral-600")}>{option.name}</span>
+                            </div>
+                            {option.price && (
+                              <span className="text-sm font-bold text-neutral-900">+ R$ {option.price.toFixed(2)}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
                 <div className="space-y-3">
                   <label className="block font-bold text-sm uppercase tracking-widest text-neutral-400">Alguma observação?</label>
                   <textarea 
@@ -410,16 +502,54 @@ ${itemsText}
                     onChange={(e) => setObservation(e.target.value)}
                   />
                 </div>
+
+                {selectedProduct.suggestedProducts && selectedProduct.suggestedProducts.length > 0 && (
+                  <div className="space-y-4 pt-4 border-t">
+                    <h3 className="font-bold text-neutral-900 flex items-center gap-2">
+                      <Plus className="w-4 h-4" />
+                      Peça também
+                    </h3>
+                    <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+                      {selectedProduct.suggestedProducts.map(id => {
+                        const suggested = products.find(p => p.id === id);
+                        if (!suggested) return null;
+                        return (
+                          <div 
+                            key={id}
+                            className="flex-shrink-0 w-40 bg-neutral-50 rounded-2xl p-3 border border-neutral-100 flex flex-col"
+                          >
+                            <div className="w-full h-24 rounded-xl overflow-hidden mb-2">
+                              <img src={suggested.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            </div>
+                            <h4 className="text-xs font-bold truncate">{suggested.name}</h4>
+                            <p className="text-xs font-bold text-neutral-900 mt-1">R$ {suggested.price.toFixed(2)}</p>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addToCart(suggested);
+                              }}
+                              className="mt-2 w-full bg-white border border-neutral-200 py-1.5 rounded-lg text-[10px] font-bold hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all"
+                            >
+                              Adicionar
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-6 bg-neutral-50 border-t flex items-center gap-4">
                 <button 
+                  disabled={selectedProduct.optionGroups?.some(g => g.required && !selectedOptions.find(sg => sg.groupId === g.id))}
                   onClick={() => {
-                    addToCart(selectedProduct, observation);
+                    addToCart(selectedProduct, observation, selectedOptions);
                     setSelectedProduct(null);
                     setObservation('');
+                    setSelectedOptions([]);
                   }}
-                  className="flex-1 bg-black text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center gap-3"
+                  className="flex-1 bg-black text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-6 h-6" />
                   Adicionar ao Carrinho
@@ -447,7 +577,7 @@ ${itemsText}
                   {cart.reduce((acc, i) => acc + i.quantity, 0)}
                 </span>
               </div>
-              <span className="text-lg font-bold">Ver carrinho</span>
+              <span className="text-lg font-bold">Ver sacola</span>
             </div>
             <span className="text-lg font-bold">R$ {cartTotal.toFixed(2)}</span>
           </motion.button>
@@ -496,17 +626,32 @@ ${itemsText}
                       </div>
                       <div className="flex-1">
                         <h3 className="font-bold">{item.name}</h3>
+                        {item.selectedOptions && item.selectedOptions.length > 0 && (
+                          <div className="mt-1 space-y-0.5">
+                            {item.selectedOptions.map(group => (
+                              <p key={group.groupId} className="text-[10px] text-neutral-500">
+                                <span className="font-bold">{group.groupName}:</span> {group.options.map(o => o.name).join(', ')}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         {item.observation && (
                           <p className="text-xs text-neutral-400 italic mt-1">Obs: {item.observation}</p>
                         )}
-                        <p className="text-neutral-900 font-bold text-sm mt-1">R$ {item.price.toFixed(2)}</p>
+                        <p className="text-neutral-900 font-bold text-sm mt-1">
+                          R$ {(() => {
+                            const optionsPrice = item.selectedOptions?.reduce((sum, group) => 
+                              sum + group.options.reduce((optSum, opt) => optSum + (opt.price || 0), 0), 0) || 0;
+                            return (item.price + optionsPrice).toFixed(2);
+                          })()}
+                        </p>
                         <div className="flex items-center gap-4 mt-2">
                           <div className="flex items-center bg-neutral-100 rounded-lg p-1">
-                            <button onClick={() => removeFromCart(item.id, item.observation)} className="p-1 hover:bg-white rounded-md transition-colors">
+                            <button onClick={() => removeFromCart(item.id, item.observation, item.selectedOptions)} className="p-1 hover:bg-white rounded-md transition-colors">
                               <Minus className="w-4 h-4" />
                             </button>
                             <span className="w-8 text-center font-bold text-sm">{item.quantity}</span>
-                            <button onClick={() => addToCart(item, item.observation)} className="p-1 hover:bg-white rounded-md transition-colors">
+                            <button onClick={() => addToCart(item, item.observation, item.selectedOptions)} className="p-1 hover:bg-white rounded-md transition-colors">
                               <Plus className="w-4 h-4" />
                             </button>
                           </div>
@@ -515,45 +660,103 @@ ${itemsText}
                     </div>
                   ))
                 )}
+
+                {cart.length > 0 && (
+                  <div className="space-y-4 pt-6 border-t">
+                    <h3 className="font-bold text-neutral-900 flex items-center gap-2">
+                      <Tag className="w-4 h-4" />
+                      Peça mais
+                    </h3>
+                    <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+                      {(storeConfig.cartSuggestions && storeConfig.cartSuggestions.length > 0 
+                        ? storeConfig.cartSuggestions.map(id => products.find(p => p.id === id)).filter(Boolean) as Product[]
+                        : products.filter(p => !cart.some(item => item.id === p.id)).slice(0, 5)
+                      ).map(p => (
+                        <div 
+                          key={p.id}
+                          className="flex-shrink-0 w-32 bg-neutral-50 rounded-2xl p-2 border border-neutral-100 flex flex-col"
+                        >
+                            <div className="w-full h-20 rounded-xl overflow-hidden mb-2">
+                              <img src={p.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            </div>
+                            <h4 className="text-[10px] font-bold truncate">{p.name}</h4>
+                            <p className="text-[10px] font-bold text-neutral-900 mt-1">R$ {p.price.toFixed(2)}</p>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addToCart(p);
+                              }}
+                              className="mt-2 w-full bg-white border border-neutral-200 py-1 rounded-lg text-[9px] font-bold hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all"
+                            >
+                              Adicionar
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {cart.length > 0 && (
                 <div className="p-6 bg-neutral-50 border-t space-y-4">
-                  {!storeConfig.isOpen && (
-                    <div className="bg-neutral-100 text-neutral-700 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      Não estamos aceitando pedidos no momento.
-                    </div>
-                  )}
                   {cartTotal < storeConfig.minOrder && storeConfig.isOpen && (
                     <div className="bg-neutral-100 text-neutral-700 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
                       <X className="w-4 h-4" />
                       Faltam R$ {(storeConfig.minOrder - cartTotal).toFixed(2)} para o pedido mínimo.
                     </div>
                   )}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-neutral-500">
-                      <span>Subtotal</span>
-                      <span>R$ {cartTotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-neutral-500">
-                      <span>Taxa de Entrega</span>
-                      <span>{deliveryFee === 0 ? <span className="text-neutral-900 font-bold">GRÁTIS</span> : `R$ ${deliveryFee.toFixed(2)}`}</span>
-                    </div>
-                    <div className="flex justify-between text-xl font-bold pt-2 border-t">
-                      <span>Total</span>
-                      <span className="text-neutral-900">R$ {(cartTotal + deliveryFee).toFixed(2)}</span>
+                  <div className="space-y-4">
+                    <button 
+                      onClick={() => {
+                        setIsCartOpen(false);
+                        setIsCheckoutOpen(true);
+                      }}
+                      className="w-full bg-white border border-neutral-200 p-4 rounded-2xl flex items-center justify-between hover:bg-neutral-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <MapPin className="w-5 h-5 text-neutral-400" />
+                        <span className="font-bold text-neutral-700">Calcular taxa e tempo de entrega</span>
+                      </div>
+                      <ChevronDown className="w-5 h-5 text-neutral-400 -rotate-90" />
+                    </button>
+
+                    {storeConfig.freeDeliveryOver && (
+                      <div className="text-center">
+                        <p className="text-[10px] font-bold text-green-600">
+                          <span className="text-green-600">Entrega grátis</span> em pedidos a partir de R$ {storeConfig.freeDeliveryOver.toFixed(2)}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-neutral-500">
+                        <span>Subtotal</span>
+                        <span>R$ {cartTotal.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-neutral-500">
+                        <span>Taxa de Entrega</span>
+                        <span>{deliveryFee === 0 ? <span className="text-neutral-900 font-bold">GRÁTIS</span> : `R$ ${deliveryFee.toFixed(2)}`}</span>
+                      </div>
+                      {!storeConfig.isOpen && storeConfig.allowOrdersWhenClosed && (
+                        <div className="bg-neutral-100 p-3 rounded-xl text-[10px] text-neutral-600 font-medium">
+                          Estamos fechados agora, mas você pode adiantar seu pedido! Entregaremos assim que abrirmos.
+                        </div>
+                      )}
+                      <div className="flex justify-between text-xl font-bold pt-2 border-t">
+                        <span>Total</span>
+                        <span className="text-neutral-900">R$ {(cartTotal + deliveryFee).toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
                   <button 
-                    disabled={cartTotal < storeConfig.minOrder || !storeConfig.isOpen}
+                    disabled={cartTotal < storeConfig.minOrder || (!storeConfig.isOpen && !storeConfig.allowOrdersWhenClosed)}
                     onClick={() => {
                       setIsCartOpen(false);
                       setIsCheckoutOpen(true);
                     }}
                     className="w-full bg-black text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {storeConfig.isOpen ? 'Finalizar Pedido' : 'Loja Fechada'}
+                    Finalizar Pedido
                   </button>
                 </div>
               )}
@@ -590,7 +793,42 @@ ${itemsText}
 
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 <div className="space-y-4">
-                  <h3 className="font-bold text-neutral-500 uppercase text-xs tracking-widest">Informações de Entrega</h3>
+                  <h3 className="font-bold text-neutral-900">Como você quer receber o pedido?</h3>
+                  <div className="space-y-3">
+                    {[
+                      { id: 'entrega', label: 'Entrega', sub: 'A gente leva até você', icon: Truck },
+                      { id: 'retirada', label: 'Retirada', sub: 'Você retira no local', icon: User },
+                      { id: 'consumo', label: 'Consumo no local', sub: 'Você consome no local', icon: ShoppingBag }
+                    ].map((type) => (
+                      <button
+                        key={type.id}
+                        onClick={() => setDeliveryType(type.id as any)}
+                        className={cn(
+                          "w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left",
+                          deliveryType === type.id 
+                            ? "border-neutral-900 bg-neutral-50" 
+                            : "border-neutral-100 hover:border-neutral-200"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-10 h-10 rounded-full flex items-center justify-center",
+                          deliveryType === type.id ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                        )}>
+                          <type.icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="font-bold text-neutral-900">{type.label}</p>
+                          <p className="text-xs text-neutral-500">{type.sub}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-bold text-neutral-500 uppercase text-xs tracking-widest">
+                    {deliveryType === 'entrega' ? 'Informações de Entrega' : 'Suas Informações'}
+                  </h3>
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-neutral-700 mb-1">Seu Nome</label>
@@ -612,32 +850,54 @@ ${itemsText}
                         onChange={(e) => setCheckoutForm({...checkoutForm, phone: e.target.value})}
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-1">Bairro</label>
-                      <select 
-                        className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all"
-                        value={selectedNeighborhood?.id || ''}
-                        onChange={(e) => {
-                          const neighborhood = storeConfig.neighborhoods.find(n => n.id === e.target.value);
-                          setSelectedNeighborhood(neighborhood || null);
-                        }}
-                      >
-                        <option value="">Selecione seu bairro</option>
-                        {storeConfig.neighborhoods.map(n => (
-                          <option key={n.id} value={n.id}>{n.name} - R$ {n.fee.toFixed(2)}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-1">Endereço Completo</label>
-                      <textarea 
-                        rows={3}
-                        placeholder="Rua, número e ponto de referência"
-                        className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all resize-none"
-                        value={checkoutForm.address}
-                        onChange={(e) => setCheckoutForm({...checkoutForm, address: e.target.value})}
-                      />
-                    </div>
+                    {deliveryType === 'entrega' && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-neutral-700 mb-1">Bairro</label>
+                          <input 
+                            list="neighborhoods"
+                            placeholder="Digite seu bairro"
+                            className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all"
+                            value={neighborhoodSearch}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setNeighborhoodSearch(value);
+                              const neighborhood = storeConfig.neighborhoods.find(n => 
+                                n.name.toLowerCase() === value.toLowerCase()
+                              );
+                              setSelectedNeighborhood(neighborhood || null);
+                            }}
+                          />
+                          <datalist id="neighborhoods">
+                            {storeConfig.neighborhoods.map(n => (
+                              <option key={n.id} value={n.name} />
+                            ))}
+                          </datalist>
+                          {selectedNeighborhood && (
+                            <p className="mt-1 text-[10px] font-bold text-green-600">
+                              Taxa de entrega: R$ {selectedNeighborhood.fee.toFixed(2)}
+                            </p>
+                          )}
+                          {!selectedNeighborhood && neighborhoodSearch && (
+                            <div className="mt-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                              <p className="text-[10px] text-amber-800 leading-tight">
+                                Bairro não encontrado. Por favor, <strong>mande sua localização fixa no WhatsApp</strong> do estabelecimento para sabermos o valor da entrega e não perder seu pedido!
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-neutral-700 mb-1">Endereço Completo</label>
+                          <textarea 
+                            rows={3}
+                            placeholder="Rua, número e ponto de referência"
+                            className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all resize-none"
+                            value={checkoutForm.address}
+                            onChange={(e) => setCheckoutForm({...checkoutForm, address: e.target.value})}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -664,7 +924,11 @@ ${itemsText}
 
               <div className="p-6 bg-neutral-50 border-t">
                 <button 
-                  disabled={!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address}
+                  disabled={
+                    !checkoutForm.name || 
+                    !checkoutForm.phone || 
+                    (deliveryType === 'entrega' && (!checkoutForm.address || !neighborhoodSearch))
+                  }
                   onClick={sendOrderToWhatsApp}
                   className="w-full bg-black text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
