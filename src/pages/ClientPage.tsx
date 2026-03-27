@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { 
   ShoppingBag, 
   MapPin, 
@@ -16,15 +16,22 @@ import {
   Home,
   Tag,
   ClipboardList,
-  Gift
+  Gift,
+  LogOut,
+  Store
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { categories, products, storeConfig } from '../data';
+import { categories as initialCategories, products as initialProducts, storeConfig as initialStoreConfig } from '../data';
 import { CartItem, Product, Neighborhood, Customer } from '../types';
+import { supabase } from '../lib/supabase';
+import { supabaseService } from '../services/supabaseService';
 
 export default function ClientPage() {
-  const [activeCategory, setActiveCategory] = useState(categories[0].id);
+  const [categories, setCategories] = useState(initialCategories);
+  const [products, setProducts] = useState(initialProducts);
+  const [storeConfig, setStoreConfig] = useState(initialStoreConfig);
+  const [activeCategory, setActiveCategory] = useState(categories[0]?.id);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
@@ -40,6 +47,45 @@ export default function ClientPage() {
   const [neighborhoodSearch, setNeighborhoodSearch] = useState('');
   const [deliveryType, setDeliveryType] = useState<'entrega' | 'retirada' | 'consumo'>('entrega');
   const [activeTab, setActiveTab] = useState('inicio');
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const [config, cats, prods] = await Promise.all([
+          supabaseService.getStoreConfig(),
+          supabaseService.getCategories(),
+          supabaseService.getProducts()
+        ]);
+        
+        if (config) setStoreConfig(config);
+        if (cats.length > 0) setCategories(cats);
+        if (prods.length > 0) setProducts(prods);
+        
+        if (cats.length > 0) setActiveCategory(cats[0].id);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (customer && activeTab === 'pedidos') {
+      fetchOrders();
+    }
+  }, [customer, activeTab]);
+
+  async function fetchOrders() {
+    if (!customer) return;
+    const data = await supabaseService.getOrdersByCustomer(customer.phone);
+    if (data) setOrders(data);
+  }
 
   const [checkoutForm, setCheckoutForm] = useState({
     name: '',
@@ -81,16 +127,32 @@ export default function ClientPage() {
     });
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (loginPhone.length < 10) return;
-    // Mock customer identification
-    setCustomer({
-      phone: loginPhone,
-      points: storeConfig.loyalty.welcomeBonus,
-      orderHistory: []
-    });
-    setCheckoutForm(prev => ({ ...prev, phone: loginPhone }));
-    setIsLoginOpen(false);
+    
+    try {
+      const { data: existingCustomer } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('phone', loginPhone)
+        .single();
+
+      if (existingCustomer) {
+        setCustomer(existingCustomer);
+      } else {
+        const { data: createdCustomer } = await supabase
+          .from('customers')
+          .insert([{ phone: loginPhone, name: 'Cliente', points: storeConfig.loyalty.welcomeBonus }])
+          .select()
+          .single();
+        if (createdCustomer) setCustomer(createdCustomer);
+      }
+      setCheckoutForm(prev => ({ ...prev, phone: loginPhone }));
+      setIsLoginOpen(false);
+      setActiveTab('perfil');
+    } catch (error) {
+      console.error('Error in handleLogin:', error);
+    }
   };
 
   const removeFromCart = (productId: string, obs?: string, options?: CartItem['selectedOptions']) => {
@@ -159,54 +221,59 @@ ${itemsText}
 
   return (
     <div className="min-h-screen bg-neutral-50 font-sans text-neutral-900 pb-24">
-      <header className="relative">
-        <div className="h-48 w-full overflow-hidden">
-          <img 
-            src={storeConfig.banner} 
-            alt="Banner" 
-            className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-          />
-        </div>
-        
-        <div className="max-w-4xl mx-auto px-4 relative z-10">
-          <div className="bg-white rounded-3xl p-6 shadow-sm -mt-20 flex flex-col items-center text-center">
-            <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white shadow-lg -mt-14 bg-white">
-              <img 
-                src={storeConfig.logo} 
-                alt="Logo" 
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-              />
-            </div>
-            
-            <div className="mt-4 space-y-1">
-              <h1 className="text-2xl font-extrabold tracking-tight">{storeConfig.name}</h1>
-              <div className="flex items-center justify-center gap-2 text-sm text-neutral-500 font-medium">
-                <MapPin className="w-4 h-4" />
-                <span>{storeConfig.location}</span>
-                <span className="text-neutral-300">•</span>
-                <button className="text-neutral-900 font-bold hover:underline">Mais informações</button>
+      {/* Header (Only on Home tab) */}
+      {activeTab === 'inicio' && (
+        <header className="relative">
+          <div className="h-48 w-full overflow-hidden">
+            <img 
+              src={storeConfig.tabImages?.inicio || storeConfig.banner} 
+              alt="Banner" 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          
+          <div className="max-w-4xl mx-auto px-4 relative z-10">
+            <div className="bg-white rounded-3xl p-6 shadow-sm -mt-20 flex flex-col items-center text-center">
+              <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white shadow-lg -mt-14 bg-white">
+                <img 
+                  src={storeConfig.logo} 
+                  alt="Logo" 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
               </div>
               
-              <div className="pt-2">
-                {!storeConfig.isOpen ? (
-                  <p className="text-red-600 font-bold text-sm">
-                    Fechado • Abrimos às {storeConfig.openHours.split(' às ')[1] || '18h00'}
-                  </p>
-                ) : (
-                  <p className="text-green-600 font-bold text-sm">
-                    Aberto • Fecha às {storeConfig.openHours.split(' às ')[1] || '23h00'}
-                  </p>
-                )}
+              <div className="mt-4 space-y-1">
+                <h1 className="text-2xl font-extrabold tracking-tight">{storeConfig.name}</h1>
+                <div className="flex items-center justify-center gap-2 text-sm text-neutral-500 font-medium">
+                  <MapPin className="w-4 h-4" />
+                  <span>{storeConfig.location}</span>
+                  <span className="text-neutral-300">•</span>
+                  <button className="text-neutral-900 font-bold hover:underline">Mais informações</button>
+                </div>
+                
+                <div className="pt-2">
+                  {!storeConfig.isOpen ? (
+                    <p className="text-red-600 font-bold text-sm">
+                      Fechado • Abrimos às {storeConfig.openHours.split(' às ')[1] || '18h00'}
+                    </p>
+                  ) : (
+                    <p className="text-green-600 font-bold text-sm">
+                      Aberto • Fecha às {storeConfig.openHours.split(' às ')[1] || '23h00'}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
-      <main className="max-w-4xl mx-auto px-4 mt-6">
-        {/* Loyalty Program Card */}
+      <main className={cn("max-w-4xl mx-auto px-4", activeTab === 'inicio' ? "mt-6" : "pt-12")}>
+        {activeTab === 'inicio' && (
+          <>
+            {/* Loyalty Program Card */}
         {storeConfig.loyalty.enabled && (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
@@ -384,7 +451,206 @@ ${itemsText}
             );
           })}
         </div>
-      </main>
+      </>
+    )}
+
+    {activeTab === 'promos' && (
+      <div className="space-y-8">
+        {storeConfig.tabImages?.promos && (
+          <div className="relative h-48 rounded-3xl overflow-hidden shadow-lg mb-8">
+            <img 
+              src={storeConfig.tabImages.promos} 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-8">
+              <h2 className="text-3xl font-bold text-white">Promoções Imperdíveis</h2>
+            </div>
+          </div>
+        )}
+        {!storeConfig.tabImages?.promos && <h2 className="text-2xl font-bold">Promoções Imperdíveis</h2>}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {products.filter(p => p.oldPrice).map(product => (
+            <motion.div 
+              key={product.id}
+              onClick={() => setSelectedProduct(product)}
+              className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow flex gap-4 group cursor-pointer relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 px-3 py-1 text-[10px] font-bold text-white bg-red-600 rounded-br-xl uppercase tracking-wider z-10">
+                OFERTA
+              </div>
+              <div className="flex-1 flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-lg leading-tight">{product.name}</h3>
+                  <p className="text-sm text-neutral-500 line-clamp-2 mt-1">{product.description}</p>
+                </div>
+                <div className="flex items-center justify-between mt-4">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-neutral-400 line-through">R$ {product.oldPrice?.toFixed(2)}</span>
+                    <span className="font-bold text-red-600">R$ {product.price.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0">
+                <img src={product.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {activeTab === 'pedidos' && (
+      <div className="space-y-8">
+        {storeConfig.tabImages?.pedidos && (
+          <div className="relative h-48 rounded-3xl overflow-hidden shadow-lg mb-8">
+            <img 
+              src={storeConfig.tabImages.pedidos} 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-8">
+              <h2 className="text-3xl font-bold text-white">Meus Pedidos</h2>
+            </div>
+          </div>
+        )}
+        {!storeConfig.tabImages?.pedidos && <h2 className="text-2xl font-bold">Meus Pedidos</h2>}
+        {!customer ? (
+          <div className="bg-white p-12 rounded-3xl text-center space-y-6 shadow-sm">
+            <div className="w-20 h-20 bg-neutral-50 rounded-full flex items-center justify-center mx-auto">
+              <ClipboardList className="w-10 h-10 text-neutral-300" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold">Faça seu pedido agora!</h3>
+              <p className="text-neutral-500">Você ainda não tem pedidos. Que tal escolher algo delicioso?</p>
+            </div>
+            <button 
+              onClick={() => setActiveTab('inicio')}
+              className="bg-black text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-all"
+            >
+              Ver Cardápio
+            </button>
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="bg-white p-12 rounded-3xl text-center space-y-6 shadow-sm">
+            <div className="w-20 h-20 bg-neutral-50 rounded-full flex items-center justify-center mx-auto">
+              <ClipboardList className="w-10 h-10 text-neutral-300" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold">Você ainda não tem pedidos</h3>
+              <p className="text-neutral-500">Que tal experimentar nossas delícias hoje?</p>
+            </div>
+            <button 
+              onClick={() => setActiveTab('inicio')}
+              className="bg-black text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-all"
+            >
+              Faça seu pedido agora
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {orders.map(order => (
+              <div key={order.id} className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Pedido #{order.id.slice(0, 8)}</p>
+                    <p className="text-sm text-neutral-500">{new Date(order.createdAt || '').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                  </div>
+                  <span className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                    order.status === 'delivered' ? "bg-green-100 text-green-700" : 
+                    order.status === 'pending' ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-500"
+                  )}>
+                    {order.status === 'pending' ? 'Pendente' :
+                     order.status === 'preparing' ? 'Preparando' :
+                     order.status === 'delivered' ? 'Entregue' : 'Cancelado'}
+                  </span>
+                </div>
+                <div className="space-y-2 mb-4">
+                  {order.items.map((item: any, idx: number) => (
+                    <div key={idx} className="flex justify-between text-sm">
+                      <span className="text-neutral-600">{item.quantity}x {item.name}</span>
+                      <span className="font-bold">R$ {(item.price * item.quantity).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-4 border-t flex justify-between items-center">
+                  <span className="font-bold">Total</span>
+                  <span className="text-lg font-bold">R$ {order.total.toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+
+    {activeTab === 'perfil' && (
+      <div className="space-y-8">
+        {storeConfig.tabImages?.perfil && (
+          <div className="relative h-48 rounded-3xl overflow-hidden shadow-lg mb-8">
+            <img 
+              src={storeConfig.tabImages.perfil} 
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-8">
+              <h2 className="text-3xl font-bold text-white">Meu Perfil</h2>
+            </div>
+          </div>
+        )}
+        {!storeConfig.tabImages?.perfil && <h2 className="text-2xl font-bold">Meu Perfil</h2>}
+        {!customer ? (
+          <div className="bg-white p-12 rounded-3xl text-center space-y-6 shadow-sm">
+            <div className="w-20 h-20 bg-neutral-50 rounded-full flex items-center justify-center mx-auto">
+              <User className="w-10 h-10 text-neutral-300" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold">Identifique-se</h3>
+              <p className="text-neutral-500">Entre para ver seus pontos de fidelidade e histórico de pedidos.</p>
+            </div>
+            <button 
+              onClick={() => setIsLoginOpen(true)}
+              className="bg-black text-white px-8 py-4 rounded-2xl font-bold shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-all"
+            >
+              Entrar agora
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="bg-white p-8 rounded-3xl shadow-sm flex items-center gap-6">
+              <div className="w-20 h-20 bg-neutral-900 rounded-full flex items-center justify-center text-white">
+                <User className="w-10 h-10" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold">{customer.name}</h3>
+                <p className="text-neutral-500">{customer.phone}</p>
+                <button 
+                  onClick={() => setCustomer(null)}
+                  className="text-red-600 text-xs font-bold flex items-center gap-1 mt-2"
+                >
+                  <LogOut className="w-3 h-3" />
+                  Sair da conta
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-black text-white p-8 rounded-3xl shadow-xl relative overflow-hidden">
+              <div className="relative z-10">
+                <p className="text-xs font-bold uppercase tracking-widest opacity-60">Seus Pontos</p>
+                <div className="flex items-end gap-2 mt-2">
+                  <span className="text-5xl font-black">{customer.points}</span>
+                  <span className="text-sm font-bold mb-2 opacity-60">pontos</span>
+                </div>
+                <p className="text-sm mt-4 opacity-80">Continue pedindo para ganhar mais prêmios!</p>
+              </div>
+              <Gift className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12" />
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </main>
 
       {/* Product Detail Modal */}
       <AnimatePresence>
@@ -1016,8 +1282,8 @@ ${itemsText}
           <span className="text-[10px] font-bold">Pedidos</span>
         </button>
         <button 
-          onClick={() => setIsLoginOpen(true)}
-          className={cn("flex flex-col items-center gap-1", customer ? "text-neutral-900" : "text-neutral-400")}
+          onClick={() => setActiveTab('perfil')}
+          className={cn("flex flex-col items-center gap-1", activeTab === 'perfil' ? "text-neutral-900" : "text-neutral-400")}
         >
           <User className="w-6 h-6" />
           <span className="text-[10px] font-bold">{customer ? 'Perfil' : 'Entrar'}</span>

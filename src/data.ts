@@ -26,6 +26,12 @@ export const storeConfig: StoreConfig = {
       { id: 'r1', name: 'Burguinho Grátis', pointsNeeded: 100, productId: '6' },
       { id: 'r2', name: 'Combo Casalzinho', pointsNeeded: 250, productId: '7' },
     ]
+  },
+  tabImages: {
+    inicio: "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=1200",
+    promos: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=1200",
+    pedidos: "https://images.unsplash.com/photo-1526367790999-0150786486a9?auto=format&fit=crop&q=80&w=1200",
+    perfil: "https://images.unsplash.com/photo-1511367461989-f85a21fda167?auto=format&fit=crop&q=80&w=1200"
   }
 };
 

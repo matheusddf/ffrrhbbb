@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   LayoutDashboard, 
@@ -17,32 +17,159 @@ import {
   Map,
   ChevronRight,
   Image as ImageIcon,
-  Check
+  Check,
+  Upload,
+  Loader2,
+  ClipboardList,
+  User,
+  Phone,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { categories, products, storeConfig } from '../data';
+import { categories as initialCategories, products as initialProducts, storeConfig as initialStoreConfig } from '../data';
 import { Link } from 'react-router-dom';
-import { Product, Neighborhood, LoyaltyReward } from '../types';
+import { Product, Neighborhood, LoyaltyReward, Category, Order } from '../types';
+import { supabase } from '../lib/supabase';
+import { supabaseService } from '../services/supabaseService';
 
 export default function AdminPage() {
-  const [localStoreConfig, setLocalStoreConfig] = useState(storeConfig);
-  const [localProducts, setLocalProducts] = useState(products);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'settings' | 'loyalty' | 'neighborhoods'>('dashboard');
+  const [localStoreConfig, setLocalStoreConfig] = useState(initialStoreConfig);
+  const [localProducts, setLocalProducts] = useState<Product[]>([]);
+  const [localCategories, setLocalCategories] = useState<Category[]>(initialCategories);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'products' | 'settings' | 'loyalty' | 'neighborhoods' | 'orders'>('dashboard');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleSaveProduct = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchData();
+    
+    // Subscribe to new orders
+    const ordersSubscription = supabase
+      .channel('orders-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
+        setOrders(prev => [payload.new, ...prev]);
+        // Play notification sound if possible
+        try {
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
+          audio.play();
+        } catch (e) {}
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersSubscription);
+    };
+  }, []);
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const [config, products, categories, ordersData] = await Promise.all([
+        supabaseService.getStoreConfig(),
+        supabaseService.getProducts(),
+        supabaseService.getCategories(),
+        supabaseService.getAllOrders()
+      ]);
+      
+      if (config) setLocalStoreConfig(config);
+      if (products.length > 0) setLocalProducts(products);
+      if (categories.length > 0) setLocalCategories(categories);
+      if (ordersData.length > 0) setOrders(ordersData);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, status: Order['status']) => {
+    try {
+      await supabaseService.updateOrderStatus(orderId, status);
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      alert('Erro ao atualizar status do pedido.');
+    }
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
     
-    setLocalProducts(prev => {
-      const exists = prev.some(p => p.id === editingProduct.id);
-      if (exists) {
-        return prev.map(p => p.id === editingProduct.id ? editingProduct : p);
+    try {
+      await supabaseService.saveProduct(editingProduct);
+      await fetchData();
+      setEditingProduct(null);
+    } catch (error) {
+      console.error('Error saving product:', error);
+      alert('Erro ao salvar produto.');
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingProduct) return;
+
+    setIsUploading(true);
+    try {
+      const url = await supabaseService.uploadImage(file);
+      if (url) {
+        setEditingProduct({ ...editingProduct, image: url });
       }
-      return [...prev, editingProduct];
-    });
-    setEditingProduct(null);
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Erro ao carregar imagem.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleTabImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, tab: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const url = await supabaseService.uploadImage(file);
+      if (url) {
+        setLocalStoreConfig(prev => ({
+          ...prev,
+          tabImages: {
+            ...prev.tabImages,
+            [tab]: url
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Erro ao carregar imagem.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+    try {
+      await supabaseService.deleteProduct(id);
+      setLocalProducts(prev => prev.filter(p => p.id !== id));
+    } catch (error) {
+      console.error('Error deleting product:', error);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      await supabaseService.updateStoreConfig(localStoreConfig);
+      alert('Configurações salvas com sucesso!');
+    } catch (error) {
+      console.error('Error saving config:', error);
+      alert('Erro ao salvar configurações.');
+    }
   };
 
   const addNeighborhood = () => {
@@ -127,6 +254,21 @@ export default function AdminPage() {
           >
             <LayoutDashboard size={20} />
             Dashboard
+          </button>
+          <button 
+            onClick={() => setActiveTab('orders')}
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
+              activeTab === 'orders' ? "bg-white/10 text-white" : "text-neutral-400 hover:bg-white/5"
+            )}
+          >
+            <ClipboardList size={20} />
+            Pedidos
+            {orders.filter(o => o.status === 'pendente').length > 0 && (
+              <span className="ml-auto bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {orders.filter(o => o.status === 'pendente').length}
+              </span>
+            )}
           </button>
           <button 
             onClick={() => setActiveTab('products')}
@@ -225,7 +367,7 @@ export default function AdminPage() {
                         value={editingProduct.categoryId}
                         onChange={(e) => setEditingProduct({...editingProduct, categoryId: e.target.value})}
                       >
-                        {categories.map(cat => (
+                        {localCategories.map(cat => (
                           <option key={cat.id} value={cat.id}>{cat.name}</option>
                         ))}
                       </select>
@@ -257,11 +399,28 @@ export default function AdminPage() {
 
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-neutral-700 mb-1">URL da Imagem</label>
-                      <div className="flex gap-2">
+                      <label className="block text-sm font-medium text-neutral-700 mb-1">Imagem do Produto</label>
+                      <div className="flex flex-col gap-4">
+                        <div className="w-full h-48 bg-neutral-100 rounded-2xl overflow-hidden relative group">
+                          {editingProduct.image ? (
+                            <img src={editingProduct.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                              <ImageIcon size={48} />
+                            </div>
+                          )}
+                          <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                            <div className="bg-white text-black px-4 py-2 rounded-xl font-bold flex items-center gap-2">
+                              {isUploading ? <Loader2 className="animate-spin" /> : <Upload size={18} />}
+                              Alterar Foto
+                            </div>
+                            <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading} />
+                          </label>
+                        </div>
                         <input 
                           type="text" 
-                          className="flex-1 bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all"
+                          placeholder="Ou cole a URL da imagem aqui"
+                          className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all text-sm"
                           value={editingProduct.image}
                           onChange={(e) => setEditingProduct({...editingProduct, image: e.target.value})}
                         />
@@ -520,17 +679,123 @@ export default function AdminPage() {
             <h2 className="text-3xl font-bold capitalize">{activeTab}</h2>
             <p className="text-neutral-500">Gerencie sua loja e cardápio em tempo real.</p>
           </div>
-          <button className="bg-neutral-900 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all">
+          <button 
+            onClick={handleSaveConfig}
+            className="bg-neutral-900 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-neutral-800 transition-all"
+          >
             <Save size={20} />
             Salvar Alterações
           </button>
         </header>
 
+        {activeTab === 'orders' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-lg">Pedidos Recentes</h3>
+              <div className="flex gap-2">
+                <span className="flex items-center gap-1 text-xs text-neutral-500">
+                  <div className="w-2 h-2 bg-amber-500 rounded-full" /> Pendente
+                </span>
+                <span className="flex items-center gap-1 text-xs text-neutral-500">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full" /> Em Preparo
+                </span>
+                <span className="flex items-center gap-1 text-xs text-neutral-500">
+                  <div className="w-2 h-2 bg-green-500 rounded-full" /> Concluído
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {orders.map(order => (
+                <div key={order.id} className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-100 flex flex-col md:flex-row gap-6">
+                  <div className="flex-1 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Pedido #{order.id.slice(0, 8)}</p>
+                        <div className="flex items-center gap-4 mt-1">
+                          <div className="flex items-center gap-1 text-sm font-bold">
+                            <User size={14} className="text-neutral-400" />
+                            {order.customer_name}
+                          </div>
+                          <div className="flex items-center gap-1 text-sm text-neutral-500">
+                            <Phone size={14} className="text-neutral-400" />
+                            {order.customer_phone}
+                          </div>
+                        </div>
+                      </div>
+                      <select 
+                        value={order.status}
+                        onChange={(e) => handleUpdateOrderStatus(order.id, e.target.value)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider border-none focus:ring-2 focus:ring-neutral-900 transition-all cursor-pointer",
+                          order.status === 'pendente' ? "bg-amber-100 text-amber-700" :
+                          order.status === 'preparando' ? "bg-blue-100 text-blue-700" :
+                          order.status === 'concluido' ? "bg-green-100 text-green-700" :
+                          "bg-neutral-100 text-neutral-700"
+                        )}
+                      >
+                        <option value="pendente">Pendente</option>
+                        <option value="preparando">Preparando</option>
+                        <option value="concluido">Concluído</option>
+                        <option value="cancelado">Cancelado</option>
+                      </select>
+                    </div>
+
+                    <div className="bg-neutral-50 p-4 rounded-xl space-y-2">
+                      {order.items.map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between text-sm">
+                          <span className="text-neutral-600">
+                            <span className="font-bold text-neutral-900">{item.quantity}x</span> {item.name}
+                            {item.selectedOptions?.map((g: any) => (
+                              <span key={g.groupId} className="block text-[10px] text-neutral-400 ml-4">
+                                {g.groupName}: {g.options.map((o: any) => o.name).join(', ')}
+                              </span>
+                            ))}
+                          </span>
+                          <span className="font-bold">R$ {(item.price * item.quantity).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="w-full md:w-64 flex flex-col justify-between border-t md:border-t-0 md:border-l border-neutral-100 pt-4 md:pt-0 md:pl-6">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <Calendar size={14} />
+                        {new Date(order.created_at).toLocaleDateString('pt-BR')}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <Clock size={14} />
+                        {new Date(order.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <Truck size={14} />
+                        {order.delivery_type === 'entrega' ? `Entrega (${order.neighborhood})` : 'Retirada'}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-neutral-100">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-bold text-neutral-400">Total</span>
+                        <span className="text-xl font-black">R$ {order.total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm">
               <p className="text-neutral-500 text-sm font-medium uppercase tracking-wider mb-2">Total de Produtos</p>
               <p className="text-4xl font-bold">{localProducts.length}</p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm">
+              <p className="text-neutral-500 text-sm font-medium uppercase tracking-wider mb-2">Pedidos Hoje</p>
+              <p className="text-4xl font-bold">{orders.filter(o => new Date(o.createdAt || '').toDateString() === new Date().toDateString()).length}</p>
             </div>
             <div className="bg-white p-6 rounded-2xl shadow-sm">
               <p className="text-neutral-500 text-sm font-medium uppercase tracking-wider mb-2">Status da Loja</p>
@@ -546,6 +811,63 @@ export default function AdminPage() {
           </div>
         )}
 
+        {activeTab === 'orders' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-6 border-b">
+                <h3 className="font-bold text-lg">Pedidos Recentes</h3>
+              </div>
+              <div className="divide-y">
+                {orders.length === 0 ? (
+                  <div className="p-12 text-center text-neutral-400">Nenhum pedido recebido ainda.</div>
+                ) : (
+                  orders.map(order => (
+                    <div key={order.id} className="p-6 hover:bg-neutral-50 transition-colors">
+                      <div className="flex flex-col md:flex-row justify-between gap-6">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Pedido #{order.id.slice(0, 8)}</span>
+                            <span className={cn(
+                              "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                              order.status === 'delivered' ? "bg-green-100 text-green-700" : 
+                              order.status === 'pending' ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-500"
+                            )}>
+                              {order.status === 'pending' ? 'Pendente' :
+                               order.status === 'preparing' ? 'Preparando' :
+                               order.status === 'delivered' ? 'Entregue' : 'Cancelado'}
+                            </span>
+                          </div>
+                          <p className="font-bold text-lg">{order.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}</p>
+                          <div className="flex flex-wrap gap-4 text-sm text-neutral-500">
+                            <span className="flex items-center gap-1"><User size={14} /> {order.customerPhone}</span>
+                            <span className="flex items-center gap-1"><MapPin size={14} /> {order.deliveryType === 'entrega' ? order.neighborhood : order.deliveryType}</span>
+                            <span className="flex items-center gap-1"><DollarSign size={14} /> {order.paymentMethod}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end justify-between gap-4">
+                          <p className="text-2xl font-bold">R$ {order.total.toFixed(2)}</p>
+                          <div className="flex gap-2">
+                            <select 
+                              className="bg-neutral-100 border-none rounded-lg py-2 px-3 text-xs font-bold focus:ring-2 focus:ring-neutral-900"
+                              value={order.status}
+                              onChange={(e) => handleUpdateOrderStatus(order.id, e.target.value as any)}
+                            >
+                              <option value="pending">Pendente</option>
+                              <option value="preparing">Preparando</option>
+                              <option value="delivered">Entregue</option>
+                              <option value="cancelled">Cancelado</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'products' && (
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
             <div className="p-6 border-b flex justify-between items-center">
@@ -557,7 +879,7 @@ export default function AdminPage() {
                   description: '',
                   price: 0,
                   image: 'https://picsum.photos/seed/new-product/400/300',
-                  categoryId: categories[0].id,
+                  categoryId: localCategories[0]?.id || '',
                   available: true
                 })}
                 className="bg-black text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-neutral-800 transition-all"
@@ -589,7 +911,7 @@ export default function AdminPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-neutral-600">
-                      {categories.find(c => c.id === product.categoryId)?.name}
+                      {localCategories.find(c => c.id === product.categoryId)?.name}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
@@ -716,7 +1038,7 @@ export default function AdminPage() {
                         onChange={(e) => updateReward(reward.id, { productId: e.target.value })}
                       >
                         <option value="">Vincular a um produto (Opcional)</option>
-                        {localProducts.map(p => (
+                        {localCategories.map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </select>
@@ -792,6 +1114,68 @@ export default function AdminPage() {
               </h3>
               <div className="space-y-4">
                 <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">Logo da Loja</label>
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-neutral-100 rounded-full overflow-hidden relative group">
+                      {localStoreConfig.logo ? (
+                        <img src={localStoreConfig.logo} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                          <ImageIcon size={24} />
+                        </div>
+                      )}
+                      <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                        <Upload size={14} className="text-white" />
+                        <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const url = await supabaseService.uploadImage(file);
+                            if (url) setLocalStoreConfig({...localStoreConfig, logo: url});
+                          }
+                        }} />
+                      </label>
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="URL da Logo"
+                      className="flex-1 bg-neutral-50 border-none rounded-xl py-2 px-4 focus:ring-2 focus:ring-neutral-900 transition-all text-sm"
+                      value={localStoreConfig.logo}
+                      onChange={(e) => setLocalStoreConfig({...localStoreConfig, logo: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">Banner da Loja</label>
+                  <div className="flex flex-col gap-2">
+                    <div className="w-full h-32 bg-neutral-100 rounded-2xl overflow-hidden relative group">
+                      {localStoreConfig.banner ? (
+                        <img src={localStoreConfig.banner} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                          <ImageIcon size={32} />
+                        </div>
+                      )}
+                      <label className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                        <Upload size={20} className="text-white" />
+                        <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const url = await supabaseService.uploadImage(file);
+                            if (url) setLocalStoreConfig({...localStoreConfig, banner: url});
+                          }
+                        }} />
+                      </label>
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="URL do Banner"
+                      className="w-full bg-neutral-50 border-none rounded-xl py-2 px-4 focus:ring-2 focus:ring-neutral-900 transition-all text-sm"
+                      value={localStoreConfig.banner}
+                      onChange={(e) => setLocalStoreConfig({...localStoreConfig, banner: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-neutral-700 mb-1">Nome da Loja</label>
                   <input 
                     type="text" 
@@ -821,6 +1205,50 @@ export default function AdminPage() {
                     onChange={(e) => setLocalStoreConfig({...localStoreConfig, whatsappNumber: e.target.value})}
                   />
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-8 rounded-2xl shadow-sm space-y-6">
+              <h3 className="font-bold text-lg flex items-center gap-2">
+                <ImageIcon className="text-neutral-900" />
+                Imagens das Abas
+              </h3>
+              <div className="space-y-4">
+                {['inicio', 'promos', 'pedidos', 'perfil'].map((tab) => (
+                  <div key={tab}>
+                    <label className="block text-sm font-medium text-neutral-700 mb-1 capitalize">Imagem {tab}</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        className="flex-1 bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all text-sm"
+                        value={localStoreConfig.tabImages?.[tab as keyof typeof localStoreConfig.tabImages] || ''}
+                        onChange={(e) => setLocalStoreConfig({
+                          ...localStoreConfig,
+                          tabImages: {
+                            ...localStoreConfig.tabImages,
+                            [tab]: e.target.value
+                          }
+                        })}
+                      />
+                      <label className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center cursor-pointer hover:bg-neutral-200 transition-colors flex-shrink-0">
+                        <Upload className="w-5 h-5 text-neutral-500" />
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept="image/*"
+                          onChange={(e) => handleTabImageUpload(e, tab)}
+                        />
+                      </label>
+                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-neutral-100 flex-shrink-0">
+                        <img 
+                          src={localStoreConfig.tabImages?.[tab as keyof typeof localStoreConfig.tabImages]} 
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

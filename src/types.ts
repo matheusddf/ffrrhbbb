@@ -69,6 +69,12 @@ export interface StoreConfig {
   freeDeliveryOver?: number;
   neighborhoods: Neighborhood[];
   loyalty: LoyaltyConfig;
+  tabImages?: {
+    inicio?: string;
+    promos?: string;
+    pedidos?: string;
+    perfil?: string;
+  };
 }
 
 export interface Order {
@@ -76,6 +82,14 @@ export interface Order {
   date: string;
   total: number;
   items: CartItem[];
+  customerPhone: string;
+  status: 'pending' | 'preparing' | 'delivered' | 'cancelled';
+  deliveryType: 'entrega' | 'retirada' | 'consumo';
+  paymentMethod: string;
+  address?: string;
+  neighborhood?: string;
+  deliveryFee?: number;
+  createdAt?: string;
 }
 
 export interface Customer {
