@@ -134,9 +134,9 @@ export default function AdminPage() {
       const storesData = await supabaseService.getAllStores();
       setAllStores(storesData);
       setEditingStore(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving store:', error);
-      alert('Erro ao salvar loja.');
+      alert(`Erro ao salvar loja: ${error.message || 'Erro desconhecido'}`);
     }
   };
 
