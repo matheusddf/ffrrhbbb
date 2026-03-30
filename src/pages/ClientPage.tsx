@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import { 
   ShoppingBag, 
   MapPin, 
@@ -23,11 +24,13 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { categories as initialCategories, products as initialProducts, storeConfig as initialStoreConfig } from '../data';
-import { CartItem, Product, Neighborhood, Customer } from '../types';
+import { CartItem, Product, Neighborhood, Customer, LoyaltyReward } from '../types';
 import { supabase } from '../lib/supabase';
 import { supabaseService } from '../services/supabaseService';
 
 export default function ClientPage() {
+  const { storeSlug } = useParams<{ storeSlug: string }>();
+  const [store, setStore] = useState<any>(null);
   const [categories, setCategories] = useState(initialCategories);
   const [products, setProducts] = useState(initialProducts);
   const [storeConfig, setStoreConfig] = useState(initialStoreConfig);
@@ -43,47 +46,63 @@ export default function ClientPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loginPhone, setLoginPhone] = useState('');
+  const [loginName, setLoginName] = useState('');
+  const [loginStep, setLoginStep] = useState<'phone' | 'name'>('phone');
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<Neighborhood | null>(null);
   const [neighborhoodSearch, setNeighborhoodSearch] = useState('');
   const [deliveryType, setDeliveryType] = useState<'entrega' | 'retirada' | 'consumo'>('entrega');
   const [activeTab, setActiveTab] = useState('inicio');
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
+      if (!storeSlug) return;
       setLoading(true);
+      setError(null);
       try {
+        const foundStore = await supabaseService.getStoreBySlug(storeSlug);
+        if (!foundStore) {
+          setError('Loja não encontrada');
+          setLoading(false);
+          return;
+        }
+        setStore(foundStore);
+
         const [config, cats, prods] = await Promise.all([
-          supabaseService.getStoreConfig(),
-          supabaseService.getCategories(),
-          supabaseService.getProducts()
+          supabaseService.getStoreConfig(foundStore.id),
+          supabaseService.getCategories(foundStore.id),
+          supabaseService.getProducts(foundStore.id)
         ]);
         
         if (config) setStoreConfig(config);
-        if (cats.length > 0) setCategories(cats);
+        if (cats.length > 0) {
+          setCategories(cats);
+          setActiveCategory(cats[0].id);
+        }
         if (prods.length > 0) setProducts(prods);
         
-        if (cats.length > 0) setActiveCategory(cats[0].id);
       } catch (error) {
         console.error('Error fetching data:', error);
+        setError('Erro ao carregar os dados da loja');
       } finally {
         setLoading(false);
       }
     }
 
     fetchData();
-  }, []);
+  }, [storeSlug]);
 
   useEffect(() => {
-    if (customer && activeTab === 'pedidos') {
+    if (customer && activeTab === 'pedidos' && store) {
       fetchOrders();
     }
-  }, [customer, activeTab]);
+  }, [customer, activeTab, store]);
 
   async function fetchOrders() {
-    if (!customer) return;
-    const data = await supabaseService.getOrdersByCustomer(customer.phone);
+    if (!customer || !store) return;
+    const data = await supabaseService.getOrdersByCustomer(customer.phone, store.id);
     if (data) setOrders(data);
   }
 
@@ -94,13 +113,20 @@ export default function ClientPage() {
     paymentMethod: 'Pix'
   });
 
+  const [selectedReward, setSelectedReward] = useState<LoyaltyReward | null>(null);
+
   const cartTotal = useMemo(() => {
-    return cart.reduce((acc, item) => {
+    const subtotal = cart.reduce((acc, item) => {
       const optionsPrice = item.selectedOptions?.reduce((sum, group) => 
         sum + group.options.reduce((optSum, opt) => optSum + (opt.price || 0), 0), 0) || 0;
       return acc + (item.price + optionsPrice) * item.quantity;
     }, 0);
-  }, [cart]);
+    
+    if (selectedReward) {
+      return Math.max(0, subtotal - (selectedReward.discount || 0));
+    }
+    return subtotal;
+  }, [cart, selectedReward]);
 
   const deliveryFee = useMemo(() => {
     if (deliveryType !== 'entrega') return 0;
@@ -128,28 +154,54 @@ export default function ClientPage() {
   };
 
   const handleLogin = async () => {
-    if (loginPhone.length < 10) return;
+    if (loginPhone.length < 10 || !store) return;
     
     try {
-      const { data: existingCustomer } = await supabase
+      const { data: existingCustomer, error: fetchError } = await supabase
         .from('customers')
         .select('*')
         .eq('phone', loginPhone)
-        .single();
+        .eq('store_id', store.id)
+        .maybeSingle();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('Error fetching customer:', fetchError);
+        return;
+      }
 
       if (existingCustomer) {
         setCustomer(existingCustomer);
+        setCheckoutForm(prev => ({ ...prev, phone: loginPhone, name: existingCustomer.name }));
+        setIsLoginOpen(false);
+        setActiveTab('perfil');
       } else {
-        const { data: createdCustomer } = await supabase
-          .from('customers')
-          .insert([{ phone: loginPhone, name: 'Cliente', points: storeConfig.loyalty.welcomeBonus }])
-          .select()
-          .single();
-        if (createdCustomer) setCustomer(createdCustomer);
+        if (loginStep === 'phone') {
+          setLoginStep('name');
+        } else if (loginName.trim()) {
+          const { data: createdCustomer, error: insertError } = await supabase
+            .from('customers')
+            .insert([{ 
+              phone: loginPhone, 
+              name: loginName, 
+              points: storeConfig.loyalty.welcomeBonus,
+              store_id: store.id
+            }])
+            .select()
+            .single();
+          
+          if (insertError) {
+            console.error('Error creating customer:', insertError);
+            return;
+          }
+
+          if (createdCustomer) {
+            setCustomer(createdCustomer);
+            setCheckoutForm(prev => ({ ...prev, phone: loginPhone, name: loginName }));
+            setIsLoginOpen(false);
+            setActiveTab('perfil');
+          }
+        }
       }
-      setCheckoutForm(prev => ({ ...prev, phone: loginPhone }));
-      setIsLoginOpen(false);
-      setActiveTab('perfil');
     } catch (error) {
       console.error('Error in handleLogin:', error);
     }
@@ -179,7 +231,9 @@ export default function ClientPage() {
     );
   }, [searchTerm]);
 
-  const sendOrderToWhatsApp = () => {
+  const sendOrderToWhatsApp = async () => {
+    if (!store) return;
+
     const itemsText = cart.map(item => {
       const optionsPrice = item.selectedOptions?.reduce((sum, group) => 
         sum + group.options.reduce((optSum, opt) => optSum + (opt.price || 0), 0), 0) || 0;
@@ -194,6 +248,8 @@ export default function ClientPage() {
 
       return `*${item.quantity}x ${item.name}*${optionsText ? `\n${optionsText}` : ''}${item.observation ? `\n   _Obs: ${item.observation}_` : ''} - R$ ${itemTotal.toFixed(2)}`;
     }).join('\n\n');
+
+    const total = cartTotal + deliveryFee;
 
     const message = `
 *NOVO PEDIDO - ${storeConfig.name}*
@@ -212,35 +268,96 @@ ${itemsText}
 ------------------------------
 *Subtotal:* R$ ${cartTotal.toFixed(2)}
 *Taxa de Entrega:* ${deliveryFee === 0 ? 'GRÁTIS' : `R$ ${deliveryFee.toFixed(2)}`}
-*TOTAL:* R$ ${(cartTotal + deliveryFee).toFixed(2)}
+*TOTAL:* R$ ${total.toFixed(2)}
     `.trim();
 
-    const encoded = encodeURIComponent(message);
-    window.open(`https://wa.me/${storeConfig.whatsappNumber}?text=${encoded}`, '_blank');
+    try {
+      // Save order to database
+      await supabaseService.createOrder({
+        customer_phone: checkoutForm.phone,
+        customer_name: checkoutForm.name,
+        items: cart,
+        total: total,
+        status: 'pendente',
+        delivery_type: deliveryType,
+        payment_method: checkoutForm.paymentMethod,
+        address: checkoutForm.address,
+        neighborhood: neighborhoodSearch,
+        delivery_fee: deliveryFee
+      }, store.id);
+
+      // If customer is logged in, update points
+      if (customer) {
+        const earnedPoints = Math.floor(cartTotal * storeConfig.loyalty.pointsPerReal);
+        const { error: updateError } = await supabase
+          .from('customers')
+          .update({ points: customer.points + earnedPoints })
+          .eq('id', customer.id);
+        
+        if (!updateError) {
+          setCustomer({ ...customer, points: customer.points + earnedPoints });
+        }
+      }
+
+      const encoded = encodeURIComponent(message);
+      window.open(`https://wa.me/${storeConfig.whatsappNumber}?text=${encoded}`, '_blank');
+      
+      // Clear cart and close modals
+      setCart([]);
+      setIsCheckoutOpen(false);
+      setIsCartOpen(false);
+      alert('Pedido enviado com sucesso!');
+    } catch (error) {
+      console.error('Error saving order:', error);
+      alert('Erro ao processar pedido. Tente novamente.');
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neutral-900"></div>
+      </div>
+    );
+  }
+
+  if (error || !store) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-neutral-50 p-4 text-center">
+        <h2 className="text-2xl font-bold text-neutral-900 mb-2">{error || 'Loja não encontrada'}</h2>
+        <p className="text-neutral-500">Verifique o link ou entre em contato com o suporte.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50 font-sans text-neutral-900 pb-24">
       {/* Header (Only on Home tab) */}
       {activeTab === 'inicio' && (
         <header className="relative">
-          <div className="h-48 w-full overflow-hidden">
+          <div className="h-40 md:h-48 w-full overflow-hidden">
             <img 
-              src={storeConfig.tabImages?.inicio || storeConfig.banner} 
+              src={storeConfig.tabImages?.inicio || storeConfig.banner || "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=1200"} 
               alt="Banner" 
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=1200";
+              }}
             />
           </div>
           
           <div className="max-w-4xl mx-auto px-4 relative z-10">
-            <div className="bg-white rounded-3xl p-6 shadow-sm -mt-20 flex flex-col items-center text-center">
-              <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white shadow-lg -mt-14 bg-white">
+            <div className="bg-white rounded-3xl p-5 md:p-6 shadow-sm -mt-16 md:mt-[-5rem] flex flex-col items-center text-center">
+              <div className="w-24 h-24 md:w-28 md:h-28 rounded-full overflow-hidden border-4 border-white shadow-lg -mt-12 md:-mt-14 bg-white">
                 <img 
-                  src={storeConfig.logo} 
+                  src={storeConfig.logo || "https://picsum.photos/seed/burger-logo/400/400"} 
                   alt="Logo" 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "https://picsum.photos/seed/burger-logo/400/400";
+                  }}
                 />
               </div>
               
@@ -256,11 +373,11 @@ ${itemsText}
                 <div className="pt-2">
                   {!storeConfig.isOpen ? (
                     <p className="text-red-600 font-bold text-sm">
-                      Fechado • Abrimos às {storeConfig.openHours.split(' às ')[1] || '18h00'}
+                      Fechado • Abrimos às {storeConfig.openHours?.split(' às ')[1] || '18h00'}
                     </p>
                   ) : (
                     <p className="text-green-600 font-bold text-sm">
-                      Aberto • Fecha às {storeConfig.openHours.split(' às ')[1] || '23h00'}
+                      Aberto • Fecha às {storeConfig.openHours?.split(' às ')[1] || '23h00'}
                     </p>
                   )}
                 </div>
@@ -828,18 +945,18 @@ ${itemsText}
 
       {/* Floating Cart Button */}
       <AnimatePresence>
-        {cart.length > 0 && !isCartOpen && (
+        {cart.length > 0 && !isCartOpen && !isCheckoutOpen && (
           <motion.button
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 100, opacity: 0 }}
             onClick={() => setIsCartOpen(true)}
-            className="fixed bottom-[88px] left-4 right-4 bg-black text-white px-6 py-4 z-40 flex items-center justify-between font-bold shadow-2xl rounded-2xl"
+            className="fixed bottom-[88px] md:bottom-8 left-4 right-4 md:left-auto md:right-8 md:w-80 bg-red-600 text-white px-6 py-4 z-40 flex items-center justify-between font-bold shadow-2xl rounded-2xl hover:bg-red-700 transition-all active:scale-95"
           >
             <div className="flex items-center gap-3">
               <div className="relative">
                 <ShoppingBag className="w-6 h-6" />
-                <span className="absolute -top-2 -right-2 bg-white text-black w-5 h-5 rounded-full text-[10px] flex items-center justify-center border-2 border-black">
+                <span className="absolute -top-2 -right-2 bg-white text-red-600 w-5 h-5 rounded-full text-[10px] flex items-center justify-center border-2 border-red-600">
                   {cart.reduce((acc, i) => acc + i.quantity, 0)}
                 </span>
               </div>
@@ -985,6 +1102,51 @@ ${itemsText}
                       </div>
                       <ChevronDown className="w-5 h-5 text-neutral-400 -rotate-90" />
                     </button>
+
+                    {/* Loyalty Redemption */}
+                    {customer && storeConfig.loyalty.enabled && storeConfig.loyalty.rewards.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-amber-900 flex items-center gap-2 uppercase tracking-wider">
+                            <Award className="w-4 h-4" />
+                            Resgatar Prêmios
+                          </h4>
+                          <span className="text-[10px] font-bold bg-amber-900 text-white px-2 py-0.5 rounded-full">
+                            {customer.points} pts
+                          </span>
+                        </div>
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                          {storeConfig.loyalty.rewards.map(reward => {
+                            const canRedeem = customer.points >= reward.points;
+                            const isSelected = selectedReward?.id === reward.id;
+                            
+                            return (
+                              <button
+                                key={reward.id}
+                                disabled={!canRedeem}
+                                onClick={() => setSelectedReward(isSelected ? null : reward)}
+                                className={cn(
+                                  "flex-shrink-0 w-32 p-3 rounded-xl border-2 transition-all text-left",
+                                  isSelected 
+                                    ? "bg-amber-900 border-amber-900 text-white shadow-lg" 
+                                    : canRedeem 
+                                      ? "bg-white border-amber-200 text-amber-900 hover:border-amber-400" 
+                                      : "bg-neutral-50 border-neutral-100 text-neutral-400 opacity-60 grayscale cursor-not-allowed"
+                                )}
+                              >
+                                <p className="text-[10px] font-bold uppercase tracking-tight line-clamp-1">{reward.name}</p>
+                                <p className="text-[10px] font-bold mt-1">{reward.points} pts</p>
+                                {isSelected && (
+                                  <div className="mt-2 text-[8px] font-bold bg-white text-amber-900 px-1.5 py-0.5 rounded inline-block">
+                                    SELECIONADO
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {storeConfig.freeDeliveryOver && (
                       <div className="text-center">
@@ -1221,29 +1383,44 @@ ${itemsText}
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-white z-50 rounded-3xl shadow-2xl p-8"
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-2rem)] max-w-sm bg-white z-50 rounded-3xl shadow-2xl p-6 md:p-8"
             >
               <div className="text-center space-y-4">
                 <div className="w-16 h-16 bg-neutral-100 rounded-full flex items-center justify-center mx-auto">
                   <User className="w-8 h-8 text-neutral-900" />
                 </div>
-                <h2 className="text-xl font-bold">Identifique-se</h2>
-                <p className="text-sm text-neutral-500">Informe seu telefone para ver seus pontos e histórico de pedidos.</p>
+                <h2 className="text-xl font-bold">{loginStep === 'phone' ? 'Identifique-se' : 'Quase lá!'}</h2>
+                <p className="text-sm text-neutral-500">
+                  {loginStep === 'phone' 
+                    ? 'Informe seu telefone para ver seus pontos e histórico de pedidos.' 
+                    : 'Como devemos te chamar?'}
+                </p>
                 
-                <input 
-                  type="tel" 
-                  placeholder="(00) 00000-0000"
-                  className="w-full bg-neutral-50 border-none rounded-xl py-4 px-5 focus:ring-2 focus:ring-neutral-900 transition-all text-center text-lg font-bold"
-                  value={loginPhone}
-                  onChange={(e) => setLoginPhone(e.target.value)}
-                />
+                {loginStep === 'phone' ? (
+                  <input 
+                    type="tel" 
+                    placeholder="(00) 00000-0000"
+                    className="w-full bg-neutral-50 border-none rounded-xl py-4 px-5 focus:ring-2 focus:ring-neutral-900 transition-all text-center text-lg font-bold"
+                    value={loginPhone}
+                    onChange={(e) => setLoginPhone(e.target.value)}
+                  />
+                ) : (
+                  <input 
+                    type="text" 
+                    placeholder="Seu nome"
+                    className="w-full bg-neutral-50 border-none rounded-xl py-4 px-5 focus:ring-2 focus:ring-neutral-900 transition-all text-center text-lg font-bold"
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                    autoFocus
+                  />
+                )}
 
                 <button 
                   onClick={handleLogin}
-                  disabled={loginPhone.length < 10}
+                  disabled={loginStep === 'phone' ? loginPhone.length < 10 : !loginName.trim()}
                   className="w-full bg-black text-white py-4 rounded-2xl font-bold shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors disabled:opacity-50"
                 >
-                  Continuar
+                  {loginStep === 'phone' ? 'Continuar' : 'Criar conta'}
                 </button>
                 
                 <button 
@@ -1259,7 +1436,7 @@ ${itemsText}
       </AnimatePresence>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-neutral-100 px-6 py-3 flex items-center justify-between z-40 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-neutral-100 px-4 md:px-6 py-3 flex items-center justify-between z-40 md:hidden">
         <button 
           onClick={() => setActiveTab('inicio')}
           className={cn("flex flex-col items-center gap-1", activeTab === 'inicio' ? "text-neutral-900" : "text-neutral-400")}

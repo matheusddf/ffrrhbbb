@@ -23,8 +23,8 @@ export const storeConfig: StoreConfig = {
     pointsPerReal: 1,
     welcomeBonus: 10,
     rewards: [
-      { id: 'r1', name: 'Burguinho Grátis', pointsNeeded: 100, productId: '6' },
-      { id: 'r2', name: 'Combo Casalzinho', pointsNeeded: 250, productId: '7' },
+      { id: 'r1', name: 'Burguinho Grátis', points: 100, productId: '6' },
+      { id: 'r2', name: 'Combo Casalzinho', points: 250, productId: '7' },
     ]
   },
   tabImages: {

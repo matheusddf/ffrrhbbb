@@ -1,3 +1,11 @@
+export interface Store {
+  id: string;
+  name: string;
+  slug: string;
+  owner_email: string;
+  created_at: string;
+}
+
 export interface ProductOption {
   id: string;
   name: string;
@@ -15,6 +23,7 @@ export interface ProductOptionGroup {
 
 export interface Product {
   id: string;
+  store_id?: string;
   name: string;
   description: string;
   price: number;
@@ -29,12 +38,14 @@ export interface Product {
 
 export interface Category {
   id: string;
+  store_id?: string;
   name: string;
   icon?: string;
 }
 
 export interface Neighborhood {
   id: string;
+  store_id?: string;
   name: string;
   fee: number;
 }
@@ -42,7 +53,8 @@ export interface Neighborhood {
 export interface LoyaltyReward {
   id: string;
   name: string;
-  pointsNeeded: number;
+  points: number;
+  discount?: number;
   productId?: string; // If it's a specific product
 }
 
@@ -54,6 +66,8 @@ export interface LoyaltyConfig {
 }
 
 export interface StoreConfig {
+  id?: number;
+  store_id?: string;
   name: string;
   logo: string;
   banner: string;
@@ -79,21 +93,23 @@ export interface StoreConfig {
 
 export interface Order {
   id: string;
-  date: string;
+  store_id?: string;
   total: number;
   items: CartItem[];
-  customerPhone: string;
-  status: 'pending' | 'preparing' | 'delivered' | 'cancelled';
-  deliveryType: 'entrega' | 'retirada' | 'consumo';
-  paymentMethod: string;
+  customer_phone: string;
+  customer_name: string;
+  status: 'pendente' | 'preparando' | 'concluido' | 'cancelado';
+  delivery_type: 'entrega' | 'retirada' | 'consumo';
+  payment_method: string;
   address?: string;
   neighborhood?: string;
-  deliveryFee?: number;
-  createdAt?: string;
+  delivery_fee?: number;
+  created_at?: string;
 }
 
 export interface Customer {
   phone: string;
+  store_id?: string;
   points: number;
   orderHistory: Order[];
 }
