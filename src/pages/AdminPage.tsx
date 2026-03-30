@@ -59,7 +59,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (user) {
       if (user.email === SUPER_ADMIN_EMAIL) {
-        fetchSuperAdminData();
+        // fetchStores is handled by the other useEffect
       } else if (store) {
         fetchData();
         
@@ -113,16 +113,43 @@ export default function AdminPage() {
     }
   };
 
-  const fetchSuperAdminData = async () => {
-    setIsLoading(true);
-    try {
-      const storesData = await supabaseService.getAllStores();
-      setAllStores(storesData);
-    } catch (error) {
-      console.error('Error fetching super admin data:', error);
-    } finally {
-      setIsLoading(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const [configUrl, setConfigUrl] = useState('');
+  const [configKey, setConfigKey] = useState('');
+
+  useEffect(() => {
+    const fetchStores = async () => {
+      try {
+        const storesData = await supabaseService.getAllStores();
+        setAllStores(storesData);
+      } catch (error: any) {
+        console.error('Error fetching stores:', error);
+        // If connection fails or URL is placeholder, show manual config
+        if (error.message?.includes('Failed to fetch') || 
+            error.message?.includes('NetworkError') ||
+            (typeof window !== 'undefined' && !localStorage.getItem('supabase_url') && !import.meta.env.VITE_SUPABASE_URL)) {
+          setShowConfig(true);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    if (user?.email === SUPER_ADMIN_EMAIL) {
+      fetchStores();
     }
+  }, [user]);
+
+  const handleSaveManualConfig = () => {
+    if (!configUrl.includes('supabase.co')) {
+      alert('URL do Supabase inválida! Deve começar com https:// e terminar com .supabase.co');
+      return;
+    }
+    if (configKey.length < 50) {
+      alert('Chave Anon inválida! Ela deve ser um código bem longo.');
+      return;
+    }
+    import('../lib/supabase').then(m => m.updateSupabaseConfig(configUrl, configKey));
   };
 
   const handleSaveStore = async (e: React.FormEvent) => {
@@ -370,7 +397,56 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-100 flex flex-col md:flex-row">
+    <>
+      {/* Configuração de Emergência */}
+      {showConfig && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl">
+            <h2 className="text-xl font-bold mb-4 text-red-600 flex items-center gap-2">
+              ⚠️ Conectar Banco de Dados
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              O site não conseguiu conectar ao seu Supabase. Cole as chaves abaixo para corrigir:
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Project URL</label>
+                <input 
+                  type="text" 
+                  className="w-full p-3 border rounded-xl text-sm bg-neutral-50"
+                  placeholder="https://xyz.supabase.co"
+                  value={configUrl}
+                  onChange={(e) => setConfigUrl(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Anon Key (public)</label>
+                <textarea 
+                  className="w-full p-3 border rounded-xl text-sm h-24 bg-neutral-50"
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR..."
+                  value={configKey}
+                  onChange={(e) => setConfigKey(e.target.value)}
+                />
+              </div>
+              <button 
+                onClick={handleSaveManualConfig}
+                className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg"
+              >
+                Salvar e Conectar
+              </button>
+              <button 
+                onClick={() => setShowConfig(false)}
+                className="w-full text-gray-400 text-sm py-2"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-screen bg-neutral-100 flex flex-col md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden bg-neutral-900 text-white p-4 flex items-center justify-between sticky top-0 z-[60]">
         <h1 className="text-lg font-bold flex items-center gap-2">
@@ -1888,5 +1964,6 @@ export default function AdminPage() {
         )}
       </main>
     </div>
+    </>
   );
 }

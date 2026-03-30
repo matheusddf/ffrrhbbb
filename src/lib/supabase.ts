@@ -1,13 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const getSupabaseConfig = () => {
+  const savedUrl = typeof window !== 'undefined' ? localStorage.getItem('supabase_url') : null;
+  const savedKey = typeof window !== 'undefined' ? localStorage.getItem('supabase_key') : null;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase URL or Anon Key is missing. Please check your environment variables.');
-}
+  return {
+    url: savedUrl || import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co',
+    key: savedKey || import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key'
+  };
+};
 
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
-);
+const config = getSupabaseConfig();
+
+export const supabase = createClient(config.url, config.key);
+
+export const updateSupabaseConfig = (url: string, key: string) => {
+  localStorage.setItem('supabase_url', url);
+  localStorage.setItem('supabase_key', key);
+  window.location.reload();
+};
