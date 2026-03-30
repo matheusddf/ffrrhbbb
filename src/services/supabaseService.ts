@@ -104,7 +104,6 @@ export const supabaseService = {
     delete (configToSave as any).freeDeliveryOver;
     delete (configToSave as any).tabImages;
     delete (configToSave as any).whatsappNumber;
-    delete (configToSave as any).loyalty; // Handled separately if needed or kept as JSON
 
     const { error } = await supabase
       .from('store_config')
