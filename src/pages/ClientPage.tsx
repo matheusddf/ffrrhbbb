@@ -192,7 +192,7 @@ export default function ClientPage() {
             .insert([{ 
               phone: loginPhone, 
               name: loginName, 
-              points: storeConfig.loyalty.welcomeBonus,
+              points: storeConfig.loyalty?.welcomeBonus || 0,
               store_id: store.id
             }])
             .select()
@@ -296,8 +296,8 @@ ${itemsText}
       }, store.id);
 
       // If customer is logged in, update points
-      if (customer) {
-        const earnedPoints = Math.floor(cartTotal * storeConfig.loyalty.pointsPerReal);
+      if (customer && storeConfig.loyalty?.enabled) {
+        const earnedPoints = Math.floor(cartTotal * (storeConfig.loyalty?.pointsPerReal || 1));
         const { error: updateError } = await supabase
           .from('customers')
           .update({ points: customer.points + earnedPoints })
@@ -412,7 +412,7 @@ ${itemsText}
         {activeTab === 'inicio' && (
           <>
             {/* Loyalty Program Card */}
-        {storeConfig.loyalty.enabled && (
+        {storeConfig.loyalty?.enabled && (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -427,12 +427,12 @@ ${itemsText}
               <p className="text-xs text-neutral-500 mt-1">
                 {customer 
                   ? `Você tem ${customer.points} pontos acumulados.` 
-                  : `A cada R$ ${storeConfig.loyalty.pointsPerReal.toFixed(2)} em compras você ganha 1 ponto que pode ser trocado por prêmios.`}
+                  : `A cada R$ ${(storeConfig.loyalty?.pointsPerReal || 1).toFixed(2)} em compras você ganha 1 ponto que pode ser trocado por prêmios.`}
               </p>
               {!customer && (
                 <div className="mt-2">
                   <p className="text-[10px] text-neutral-400 mb-1 italic">
-                    Novos clientes ganham automaticamente {storeConfig.loyalty.welcomeBonus} pontos.
+                    Novos clientes ganham automaticamente {storeConfig.loyalty?.welcomeBonus || 0} pontos.
                   </p>
                   <button 
                     onClick={() => setIsLoginOpen(true)}
@@ -1145,7 +1145,7 @@ ${itemsText}
                     </button>
 
                     {/* Loyalty Redemption */}
-                    {customer && storeConfig.loyalty.enabled && storeConfig.loyalty.rewards.length > 0 && (
+                    {customer && storeConfig.loyalty?.enabled && (storeConfig.loyalty?.rewards?.length || 0) > 0 && (
                       <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl space-y-3">
                         <div className="flex items-center justify-between">
                           <h4 className="text-xs font-bold text-amber-900 flex items-center gap-2 uppercase tracking-wider">
@@ -1157,7 +1157,7 @@ ${itemsText}
                           </span>
                         </div>
                         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                          {storeConfig.loyalty.rewards.map(reward => {
+                          {(storeConfig.loyalty?.rewards || []).map(reward => {
                             const canRedeem = customer.points >= reward.points;
                             const isSelected = selectedReward?.id === reward.id;
                             
@@ -1331,14 +1331,14 @@ ${itemsText}
                             onChange={(e) => {
                               const value = e.target.value;
                               setNeighborhoodSearch(value);
-                              const neighborhood = storeConfig.neighborhoods.find(n => 
+                              const neighborhood = (storeConfig.neighborhoods || []).find(n => 
                                 n.name.toLowerCase() === value.toLowerCase()
                               );
                               setSelectedNeighborhood(neighborhood || null);
                             }}
                           />
                           <datalist id="neighborhoods">
-                            {storeConfig.neighborhoods.map(n => (
+                            {(storeConfig.neighborhoods || []).map(n => (
                               <option key={n.id} value={n.name} />
                             ))}
                           </datalist>

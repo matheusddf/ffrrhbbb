@@ -82,11 +82,27 @@ export const supabaseService = {
       console.error('Error fetching store config:', error);
       return null;
     }
+
+    // Fetch neighborhoods separately
+    const { data: neighborhoodsData } = await supabase
+      .from('neighborhoods')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('name');
+
     return {
       ...data,
       deliveryFee: data.delivery_fee,
       freeDeliveryOver: data.free_delivery_over,
-      tabImages: data.tab_images
+      tabImages: data.tab_images,
+      whatsappNumber: data.whatsapp_number,
+      neighborhoods: neighborhoodsData || [],
+      loyalty: data.loyalty || {
+        enabled: false,
+        pointsPerReal: 1,
+        welcomeBonus: 0,
+        rewards: []
+      }
     };
   },
 
@@ -99,17 +115,43 @@ export const supabaseService = {
       tab_images: config.tabImages,
       whatsapp_number: config.whatsappNumber
     };
-    // Remove camelCase fields
+    // Remove camelCase fields and neighborhoods (since it's a separate table)
     delete (configToSave as any).deliveryFee;
     delete (configToSave as any).freeDeliveryOver;
     delete (configToSave as any).tabImages;
     delete (configToSave as any).whatsappNumber;
+    const neighborhoods = (configToSave as any).neighborhoods;
+    delete (configToSave as any).neighborhoods;
 
     const { error } = await supabase
       .from('store_config')
       .upsert(configToSave, { onConflict: 'store_id' });
     
     if (error) throw error;
+
+    // Save neighborhoods if provided
+    if (neighborhoods && Array.isArray(neighborhoods)) {
+      // First, get current neighborhoods to see what to delete
+      const { data: currentNeighborhoods } = await supabase
+        .from('neighborhoods')
+        .select('id')
+        .eq('store_id', storeId);
+      
+      const currentIds = currentNeighborhoods?.map(n => n.id) || [];
+      const newIds = neighborhoods.map(n => n.id);
+      const idsToDelete = currentIds.filter(id => !newIds.includes(id));
+
+      if (idsToDelete.length > 0) {
+        await supabase.from('neighborhoods').delete().in('id', idsToDelete);
+      }
+
+      if (neighborhoods.length > 0) {
+        const { error: nError } = await supabase
+          .from('neighborhoods')
+          .upsert(neighborhoods.map(n => ({ ...n, store_id: storeId })));
+        if (nError) throw nError;
+      }
+    }
   },
 
   // Categories
@@ -171,24 +213,28 @@ export const supabaseService = {
 
   async saveProduct(product: Product, storeId: string) {
     const productToSave = {
-      ...product,
+      id: product.id,
       store_id: storeId,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      image: product.image,
+      available: product.available,
+      badge: product.badge,
       old_price: product.oldPrice,
       category_id: product.categoryId,
-      suggested_products: product.suggestedProducts,
-      option_groups: product.optionGroups
+      suggested_products: product.suggestedProducts || [],
+      option_groups: product.optionGroups || []
     };
-    // Remove camelCase fields
-    delete (productToSave as any).oldPrice;
-    delete (productToSave as any).categoryId;
-    delete (productToSave as any).suggestedProducts;
-    delete (productToSave as any).optionGroups;
 
     const { error } = await supabase
       .from('products')
       .upsert(productToSave);
     
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase saveProduct error:', error);
+      throw error;
+    }
   },
 
   async deleteProduct(id: string) {

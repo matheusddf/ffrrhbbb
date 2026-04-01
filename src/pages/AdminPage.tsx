@@ -52,6 +52,7 @@ export default function AdminPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingStore, setEditingStore] = useState<any | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -186,10 +187,10 @@ export default function AdminPage() {
       ]);
       
       if (config) setLocalStoreConfig(config);
-      if (products.length > 0) setLocalProducts(products);
-      if (categories.length > 0) setLocalCategories(categories);
-      if (ordersData.length > 0) setOrders(ordersData);
-      if (customersData.length > 0) setCustomers(customersData);
+      setLocalProducts(products || []);
+      setLocalCategories(categories || []);
+      setOrders(ordersData || []);
+      setCustomers(customersData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -210,14 +211,22 @@ export default function AdminPage() {
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct || !store) return;
+
+    if (!editingProduct.categoryId) {
+      alert('Por favor, selecione uma categoria para o produto.');
+      return;
+    }
     
+    setIsSaving(true);
     try {
       await supabaseService.saveProduct(editingProduct, store.id);
       await fetchData();
       setEditingProduct(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving product:', error);
-      alert('Erro ao salvar produto.');
+      alert(`Erro ao salvar produto: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1052,9 +1061,10 @@ export default function AdminPage() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 bg-black text-white py-4 rounded-2xl font-bold shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
+                    disabled={isSaving || isUploading}
+                    className="flex-1 bg-black text-white py-4 rounded-2xl font-bold shadow-lg shadow-neutral-200 hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    <Check size={20} />
+                    {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}
                     Salvar Produto
                   </button>
                 </div>
@@ -1298,7 +1308,7 @@ export default function AdminPage() {
                     const name = prompt('Nome da nova categoria:');
                     if (name) {
                       handleSaveCategory({
-                        id: Math.random().toString(36).substr(2, 9),
+                        id: crypto.randomUUID?.() || Math.random().toString(36).substr(2, 9),
                         name,
                         icon: 'ShoppingBag'
                       });
@@ -1349,7 +1359,7 @@ export default function AdminPage() {
                 <h3 className="font-bold text-lg">Seus Produtos</h3>
               <button 
                 onClick={() => setEditingProduct({
-                  id: Math.random().toString(36).substr(2, 9),
+                  id: crypto.randomUUID?.() || Math.random().toString(36).substr(2, 9),
                   name: '',
                   description: '',
                   price: 0,
@@ -1440,16 +1450,16 @@ export default function AdminPage() {
                 <button 
                   onClick={() => setLocalStoreConfig({
                     ...localStoreConfig, 
-                    loyalty: { ...localStoreConfig.loyalty, enabled: !localStoreConfig.loyalty.enabled }
+                    loyalty: { ...(localStoreConfig.loyalty || {}), enabled: !(localStoreConfig.loyalty?.enabled) }
                   })}
                   className={cn(
                     "w-12 h-6 rounded-full transition-colors relative",
-                    localStoreConfig.loyalty.enabled ? "bg-black" : "bg-neutral-300"
+                    localStoreConfig.loyalty?.enabled ? "bg-black" : "bg-neutral-300"
                   )}
                 >
                   <div className={cn(
                     "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                    localStoreConfig.loyalty.enabled ? "left-7" : "left-1"
+                    localStoreConfig.loyalty?.enabled ? "left-7" : "left-1"
                   )} />
                 </button>
               </div>
@@ -1460,10 +1470,10 @@ export default function AdminPage() {
                   <input 
                     type="number" 
                     className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all"
-                    value={localStoreConfig.loyalty.pointsPerReal}
+                    value={localStoreConfig.loyalty?.pointsPerReal || 0}
                     onChange={(e) => setLocalStoreConfig({
                       ...localStoreConfig, 
-                      loyalty: { ...localStoreConfig.loyalty, pointsPerReal: Number(e.target.value) }
+                      loyalty: { ...(localStoreConfig.loyalty || {}), pointsPerReal: Number(e.target.value) }
                     })}
                   />
                 </div>
@@ -1472,10 +1482,10 @@ export default function AdminPage() {
                   <input 
                     type="number" 
                     className="w-full bg-neutral-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-neutral-900 transition-all"
-                    value={localStoreConfig.loyalty.welcomeBonus}
+                    value={localStoreConfig.loyalty?.welcomeBonus || 0}
                     onChange={(e) => setLocalStoreConfig({
                       ...localStoreConfig, 
-                      loyalty: { ...localStoreConfig.loyalty, welcomeBonus: Number(e.target.value) }
+                      loyalty: { ...(localStoreConfig.loyalty || {}), welcomeBonus: Number(e.target.value) }
                     })}
                   />
                 </div>
@@ -1494,7 +1504,7 @@ export default function AdminPage() {
                 </button>
               </div>
               <div className="divide-y">
-                {localStoreConfig.loyalty.rewards.map(reward => (
+                {(localStoreConfig.loyalty?.rewards || []).map(reward => (
                   <div key={reward.id} className="p-6 flex flex-col md:flex-row gap-4 items-start md:items-center">
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
                       <input 
@@ -1524,7 +1534,7 @@ export default function AdminPage() {
                         onChange={(e) => updateReward(reward.id, { productId: e.target.value })}
                       >
                         <option value="">Vincular a um produto (Opcional)</option>
-                        {localCategories.map(p => (
+                        {localProducts.map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </select>
@@ -1634,7 +1644,7 @@ export default function AdminPage() {
               </button>
             </div>
             <div className="divide-y">
-              {localStoreConfig.neighborhoods.map(neighborhood => (
+              {(localStoreConfig.neighborhoods || []).map(neighborhood => (
                 <div key={neighborhood.id} className="p-4 md:p-6 flex items-center gap-4">
                   <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <input 
