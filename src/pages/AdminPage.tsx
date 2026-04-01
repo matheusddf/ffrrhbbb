@@ -514,7 +514,7 @@ export default function AdminPage() {
         <div className="p-6 border-b border-white/10 hidden md:block">
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Store className="text-white" />
-            Burger do Gordo
+            {store?.name || "Painel Master"}
           </h1>
         </div>
         
@@ -1702,17 +1702,29 @@ export default function AdminPage() {
                     <tr key={s.id} className="hover:bg-neutral-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-sm">{s.name}</td>
                       <td className="px-6 py-4 text-sm text-neutral-500">
-                        <a href={`/${s.slug}`} target="_blank" rel="noopener noreferrer" className="hover:underline text-blue-600">
-                          /{s.slug}
-                        </a>
+                        <div className="flex items-center gap-2">
+                          <a href={`/${s.slug}`} target="_blank" rel="noopener noreferrer" className="hover:underline text-blue-600 font-medium">
+                            /{s.slug}
+                          </a>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}/${s.slug}`);
+                              alert('Link do cardápio copiado!');
+                            }}
+                            className="p-1 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-900"
+                            title="Copiar Link do Cardápio"
+                          >
+                            <ClipboardList size={14} />
+                          </button>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-neutral-500">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs bg-neutral-100 px-2 py-1 rounded">/admin</span>
+                          <span className="text-xs bg-neutral-100 px-2 py-1 rounded font-mono">/admin</span>
                           <button 
                             onClick={() => {
                               navigator.clipboard.writeText(`${window.location.origin}/admin`);
-                              alert('Link do painel copiado!');
+                              alert('Link do painel admin copiado!');
                             }}
                             className="p-1 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-900"
                             title="Copiar Link do Painel"

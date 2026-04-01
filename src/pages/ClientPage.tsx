@@ -28,6 +28,8 @@ import { CartItem, Product, Neighborhood, Customer, LoyaltyReward } from '../typ
 import { supabase } from '../lib/supabase';
 import { supabaseService } from '../services/supabaseService';
 
+const SUPER_ADMIN_EMAIL = 'beleensematheus350@gmail.com';
+
 export default function ClientPage() {
   const { storeSlug } = useParams<{ storeSlug: string }>();
   const [store, setStore] = useState<any>(null);
@@ -375,7 +377,7 @@ ${itemsText}
                   <span>{storeConfig.location}</span>
                   <span className="text-neutral-300">•</span>
                   <button className="text-neutral-900 font-bold hover:underline">Mais informações</button>
-                  {(authUser?.email === store?.owner_email || authUser?.email === 'beleensematheus350@gmail.com') && (
+                  {(authUser?.email === store?.owner_email || authUser?.email === SUPER_ADMIN_EMAIL) && (
                     <>
                       <span className="text-neutral-300">•</span>
                       <a 
@@ -783,7 +785,7 @@ ${itemsText}
               <Gift className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12" />
             </div>
 
-            {(authUser?.email === store?.owner_email || authUser?.email === 'beleensematheus350@gmail.com') && (
+            {(authUser?.email === store?.owner_email || authUser?.email === SUPER_ADMIN_EMAIL) && (
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-neutral-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-600">
