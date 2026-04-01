@@ -521,7 +521,7 @@ export default function AdminPage() {
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {user?.email === SUPER_ADMIN_EMAIL && (
             <button 
-              onClick={() => { setActiveTab('stores'); setIsSidebarOpen(false); }}
+              onClick={() => { setStore(null); setActiveTab('stores'); setIsSidebarOpen(false); }}
               className={cn(
                 "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium",
                 activeTab === 'stores' ? "bg-white text-red-700 shadow-lg" : "text-white/70 hover:bg-white/10 hover:text-white"
@@ -532,7 +532,7 @@ export default function AdminPage() {
             </button>
           )}
           
-          {user?.email !== SUPER_ADMIN_EMAIL && (
+          {(user?.email !== SUPER_ADMIN_EMAIL || store) && (
             <>
               <button 
                 onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false); }}
@@ -1724,6 +1724,16 @@ export default function AdminPage() {
                       <td className="px-6 py-4 text-sm">{s.owner_email}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => {
+                              setStore(s);
+                              setActiveTab('dashboard');
+                            }}
+                            className="p-2 hover:bg-neutral-100 text-blue-600 rounded-lg transition-colors"
+                            title="Gerenciar esta Loja"
+                          >
+                            <LayoutDashboard size={16} />
+                          </button>
                           <button 
                             onClick={() => setEditingStore(s)}
                             className="p-2 hover:bg-neutral-100 text-neutral-600 rounded-lg transition-colors"
