@@ -19,3 +19,9 @@ export const updateSupabaseConfig = (url: string, key: string) => {
   localStorage.setItem('supabase_key', key);
   window.location.reload();
 };
+
+export const clearSupabaseConfig = () => {
+  localStorage.removeItem('supabase_url');
+  localStorage.removeItem('supabase_key');
+  window.location.reload();
+};

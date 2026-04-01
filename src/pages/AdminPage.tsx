@@ -152,6 +152,12 @@ export default function AdminPage() {
     import('../lib/supabase').then(m => m.updateSupabaseConfig(configUrl, configKey));
   };
 
+  const handleResetConfig = () => {
+    if (confirm('Tem certeza que deseja resetar a conexão? Isso voltará para as configurações padrão do site.')) {
+      import('../lib/supabase').then(m => m.clearSupabaseConfig());
+    }
+  };
+
   const handleSaveStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStore) return;
@@ -410,6 +416,12 @@ export default function AdminPage() {
             </p>
             
             <div className="space-y-4">
+              <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+                <p className="text-[10px] text-neutral-400 uppercase font-bold mb-1">Status da Conexão</p>
+                <p className="text-xs font-mono break-all text-neutral-600">
+                  Verifique as chaves abaixo
+                </p>
+              </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Project URL</label>
                 <input 
@@ -434,6 +446,12 @@ export default function AdminPage() {
                 className="w-full bg-red-600 text-white py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-lg"
               >
                 Salvar e Conectar
+              </button>
+              <button 
+                onClick={handleResetConfig}
+                className="w-full bg-neutral-100 text-neutral-600 py-3 rounded-xl font-bold hover:bg-neutral-200 transition-colors"
+              >
+                Resetar para Padrão
               </button>
               <button 
                 onClick={() => setShowConfig(false)}
@@ -1189,30 +1207,55 @@ export default function AdminPage() {
                     <p className="text-neutral-400 mt-1">Compartilhe seu link exclusivo com seus clientes.</p>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="bg-white/10 px-4 py-3 rounded-xl font-mono text-sm border border-white/10 flex items-center gap-3">
-                      <span className="text-neutral-300 truncate max-w-[200px] md:max-w-xs">
-                        {window.location.origin}/{store?.slug}
-                      </span>
-                      <button 
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/${store?.slug}`);
-                          alert('Link copiado para a área de transferência!');
-                        }}
-                        className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white"
-                        title="Copiar Link"
-                      >
-                        <ClipboardList size={18} />
-                      </button>
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-white/50">Link do Cardápio</span>
+                      <div className="bg-white/10 px-4 py-3 rounded-xl font-mono text-sm border border-white/10 flex items-center gap-3">
+                        <span className="text-neutral-300 truncate max-w-[200px] md:max-w-xs">
+                          {window.location.origin}/{store?.slug}
+                        </span>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/${store?.slug}`);
+                            alert('Link do cardápio copiado!');
+                          }}
+                          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white"
+                          title="Copiar Link do Cardápio"
+                        >
+                          <ClipboardList size={18} />
+                        </button>
+                      </div>
                     </div>
-                    <a 
-                      href={`/${store?.slug}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-white text-neutral-900 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-neutral-100 transition-all"
-                    >
-                      Ver Cardápio
-                      <ChevronRight size={20} />
-                    </a>
+
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-white/50">Link do Painel Admin</span>
+                      <div className="bg-white/10 px-4 py-3 rounded-xl font-mono text-sm border border-white/10 flex items-center gap-3">
+                        <span className="text-neutral-300 truncate max-w-[200px] md:max-w-xs">
+                          {window.location.origin}/admin
+                        </span>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/admin`);
+                            alert('Link do painel admin copiado!');
+                          }}
+                          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white"
+                          title="Copiar Link do Painel"
+                        >
+                          <ClipboardList size={18} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-end">
+                      <a 
+                        href={`/${store?.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-white text-neutral-900 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-neutral-100 transition-all h-[52px]"
+                      >
+                        Ver Cardápio
+                        <ChevronRight size={20} />
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1649,8 +1692,8 @@ export default function AdminPage() {
                   <tr>
                     <th className="px-6 py-4">Loja</th>
                     <th className="px-6 py-4">Slug / Link</th>
+                    <th className="px-6 py-4">Link Admin</th>
                     <th className="px-6 py-4">Dono (E-mail)</th>
-                    <th className="px-6 py-4">Criada em</th>
                     <th className="px-6 py-4 text-right">Ações</th>
                   </tr>
                 </thead>
@@ -1663,10 +1706,22 @@ export default function AdminPage() {
                           /{s.slug}
                         </a>
                       </td>
-                      <td className="px-6 py-4 text-sm">{s.owner_email}</td>
-                      <td className="px-6 py-4 text-sm text-neutral-400">
-                        {new Date(s.created_at).toLocaleDateString()}
+                      <td className="px-6 py-4 text-sm text-neutral-500">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs bg-neutral-100 px-2 py-1 rounded">/admin</span>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(`${window.location.origin}/admin`);
+                              alert('Link do painel copiado!');
+                            }}
+                            className="p-1 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-900"
+                            title="Copiar Link do Painel"
+                          >
+                            <ClipboardList size={14} />
+                          </button>
+                        </div>
                       </td>
+                      <td className="px-6 py-4 text-sm">{s.owner_email}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
                           <button 

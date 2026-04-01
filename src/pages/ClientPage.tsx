@@ -55,6 +55,13 @@ export default function ClientPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setAuthUser(user);
+    });
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
@@ -368,6 +375,18 @@ ${itemsText}
                   <span>{storeConfig.location}</span>
                   <span className="text-neutral-300">•</span>
                   <button className="text-neutral-900 font-bold hover:underline">Mais informações</button>
+                  {(authUser?.email === store?.owner_email || authUser?.email === 'beleensematheus350@gmail.com') && (
+                    <>
+                      <span className="text-neutral-300">•</span>
+                      <a 
+                        href="/admin" 
+                        className="text-red-600 font-bold hover:underline flex items-center gap-1"
+                      >
+                        <Store size={14} />
+                        Painel Admin
+                      </a>
+                    </>
+                  )}
                 </div>
                 
                 <div className="pt-2">
@@ -763,6 +782,26 @@ ${itemsText}
               </div>
               <Gift className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12" />
             </div>
+
+            {(authUser?.email === store?.owner_email || authUser?.email === 'beleensematheus350@gmail.com') && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-neutral-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-600">
+                    <Store size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold">Painel Administrativo</h4>
+                    <p className="text-xs text-neutral-500">Gerencie sua loja e pedidos</p>
+                  </div>
+                </div>
+                <a 
+                  href="/admin" 
+                  className="bg-neutral-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-neutral-800 transition-all"
+                >
+                  Acessar
+                </a>
+              </div>
+            )}
           </div>
         )}
       </div>
